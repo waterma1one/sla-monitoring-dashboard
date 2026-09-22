@@ -646,3 +646,85 @@ and the stats collapse toggle. Screenshot saved to `docs/dashboard-live.png`.
 dropped request, deployed or local. Carried forward as an open question.
 
 **Verified live at**: 2026-09-22, ~17:50 UTC.
+
+## 13. Post-review fixes (after phase 9)
+
+A code review after phase 9 found ten defects, which it reported
+rather than fixed. Nine were fixed afterwards; the tenth was
+already recorded here as an accepted constraint. Each fix is one commit.
+
+**C13.1 — CRLF is stripped at the split, not later.** All five source CSVs are
+CRLF, and both the Worker and the browser split chunks on `"\n"`, so a carriage
+return stayed glued to the last column and every stored `region` was
+`"ap-south-1\r"`. Both now split on `/\r?\n/`. No SLA figure moves - `region` is
+the degenerate column from F13 - but the value was corrupt, and the reason 93
+tests missed it is worth recording: every assertion looked at a number. Two new
+assertions look at `region` instead, one in the fixture test and one against a
+CRLF chunk posted through the real ingest path.
+
+**C13.2 — a whitespace-only latency is missing, not zero.** `Number(" ")` is
+`0`, so a blank-but-not-empty latency field bypassed `latency_missing` and would
+have been stored as a real measurement of zero, pulling mean and p95 down.
+`parseLatencyField` now trims before its emptiness test, matching what the
+status field two lines above already did. Latent in this data - phase 1
+established these fields are genuinely empty - but wrong for any future file.
+
+**C13.3 — a chunk's rows and its marker commit together.** The `upload_chunks`
+marker used to be written after the row inserts, so a failure in between left
+rows with no marker; the client's retry then re-inserted the quarantined rows
+(`rejected_rows` has no unique constraint) and recorded the chunk as accepting
+nothing, because every check row now collided with the copy already stored.
+The marker moved into the same `db.batch()` as the rows, which D1 runs as one
+transaction. `rows_accepted` has to be bound before the batch executes, which
+`INSERT OR IGNORE` does not allow, so the marker derives it in SQL from the
+upload's row count before and after the inserts, and the response is read back
+from the stored row so the two cannot disagree.
+
+**C13.4 — finalize is idempotent.** A repeat finalize used to get 409
+`upload_not_open` forever, so an upload whose finalize response was lost had its
+rows committed and its summary unreachable - and the summary is the only thing
+the upload screen shows. A finalize against an already-complete upload now
+returns the summary stored on the `uploads` row. 409 remains for a `failed`
+upload, which is a real conflict. The alternative - treating 409 as success in
+the browser - was rejected: the client cannot distinguish a lost response from a
+finalize that never arrived, so the server is the only place the question can be
+answered correctly.
+
+**C13.5 — thrown Worker errors come back as JSON with CORS headers.** An
+unhandled D1 error got Cloudflare's default 500, which carries no
+`Access-Control-Allow-Origin`; the browser turns that into an opaque
+`TypeError`, so the UI reported "unknown error" for every server-side failure.
+The router moved out of the default-export object into a `route` function and
+the handler wraps it in try/catch.
+
+**C13.6 — `rejected_rows.line_no` is the source line number.** It restarted at
+2 in every chunk, so source lines 2, 1002 and 2002 all recorded `line_no = 2`,
+defeating the only purpose the table has. The offset comes from summing
+`rows_total` over earlier chunks rather than multiplying by an assumed chunk
+size, so the Worker keeps no opinion about how the client slices the file.
+
+**C13.7 — the dashboard no longer shows the previous filter's data.** The stats
+panel never cleared its last response, so switching upload or date rendered one
+upload's availability and credit verdict under another's heading, and left them
+beside the error if the new request failed. The logs "load more" had no
+cancellation, so a page fetched under the old filter could append to the new one
+and overwrite the cursor. Both now key on the upload and filter being displayed.
+
+**C13.8 — selecting an upload re-seeds the date filter.** Two uploads can cover
+completely different windows, so carrying the old date across a switch showed
+"No rows in this range" and made a good upload look empty.
+
+**Not fixed:** the stats query is unbounded and grouped in JS. That is section 8
+above, an accepted constraint rather than a new finding.
+
+**Verification:** `cd worker && npm test` - 97 passed, 6 files (93 before, plus
+four written for these fixes). `cd frontend && npx tsc -b && npm run lint` clean.
+End to end against `wrangler dev` with local D1 and the 200-row fixture posted as
+two CRLF chunks: 199 accepted, 1 duplicate, `region` returned as `ap-south-1`
+with no carriage return, a repeat finalize returning 200 with the same summary
+rather than 409, and OPTIONS, 404 and 400 responses all still carrying CORS
+headers after the router refactor.
+
+**Not yet redeployed.** These fixes are local only. The live Worker still runs
+the pre-fix code and the remote database still holds the phase 7 upload with
+carriage returns on all 15,552 rows.
