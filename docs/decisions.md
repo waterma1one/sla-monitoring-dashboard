@@ -344,3 +344,58 @@ recommendation to generate `worker-configuration.d.ts` instead and drop the sepa
 package. The generated file is committed, per Cloudflare's own default template
 `.gitignore`, and gets regenerated with `npm run types` after any `wrangler.jsonc` binding
 change.
+
+## 8. Query endpoints (phase 4)
+
+### Expected points use the whole upload's service count, not the range's
+
+`coverage`'s denominator (`days x 96 per service`) counts every service that
+appears anywhere in the upload, not just the ones with rows in the requested
+range. The assignment's 5 services are fixed for a given file, so a service
+that is silent for part of the range should still count against coverage -
+narrowing the denominator to only-services-present-in-range would make a total
+outage in a range look identical to that service simply not existing.
+
+### Availability, coverage, and degraded rate are `null`, not `0`, on an empty denominator
+
+`available / (available + unavailable)`, `observed / expected`, and
+`degraded / available` all return `null` when their denominator is 0 (no
+resolvable check-points in range, or an upload with zero services) rather than
+0. A `0` would read as "confirmed down" or "confirmed zero coverage"; `null` is
+"nothing to report," which is a different fact and the dashboard should be able
+to tell the two apart rather than silently plotting a false zero.
+
+### Stats and logs require the upload to exist, not to be finalized
+
+Both endpoints 404 on an unknown `uploadId` but do not check `status`. An
+in-progress (`open`) upload can still be queried - useful for a client
+watching partial results land - and nothing about the query logic depends on
+`finalize` having run, since it reads `checks` directly rather than the
+`uploads` summary columns.
+
+### Logs pagination: `limit` defaults to 100, capped at 500
+
+Chosen the same way as the phase 3 batch size - deliberately, not by default.
+100 is a browser-table-sized page; 500 is a hard ceiling that still keeps a D1
+response and the JSON payload small, well under the free-tier response-size
+limits phase 3 already designed around. `getLogs` fetches `limit + 1` rows to
+know whether a next page exists without a second COUNT query.
+
+### p95 uses the nearest-rank method
+
+`latency.p95` is the smallest value at or above the 95th percentile of the
+sorted, non-null latencies in range (`ceil(0.95 * n) - 1`, clamped to the last
+index). This is computed in the Worker after one D1 read rather than in SQL,
+since SQLite has no built-in percentile function; the same read already backs
+the check-point grouping, so this adds no extra query.
+
+### Known constraint: stats grouping is O(rows in range) in Worker memory, not SQL
+
+`getStats` fetches every row in the requested range and groups it into
+check-points in JavaScript, because resolving a check-point (worst-status-wins,
+mean-of-non-null-latency) is not expressible as a single SQL aggregate. For a
+narrow range this is cheap; for the full ~15,577-row file queried as one range,
+it is the same order of magnitude of work as a chunk in phase 3's ingest path,
+which is already sized to the Workers free-tier CPU budget - phase 7's full-file
+verification is the place this gets confirmed under real volume rather than
+assumed here.
