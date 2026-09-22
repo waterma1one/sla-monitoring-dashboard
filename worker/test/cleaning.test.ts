@@ -8,7 +8,26 @@ import {
   parseLatencyField,
   computeDegraded,
   cleanRow,
+  dedupeAccepted,
+  type AcceptedRow,
 } from "../src/cleaning";
+
+function acceptedRow(overrides: Partial<AcceptedRow> = {}): AcceptedRow {
+  return {
+    serviceId: "svc-auth",
+    serviceName: "auth-api",
+    region: "ap-south-1",
+    agent: "agent-1",
+    ts: 1744830000,
+    day: "2025-04-16",
+    statusCode: 200,
+    statusClass: "available",
+    latencyMs: 300,
+    degraded: false,
+    corrections: [],
+    ...overrides,
+  };
+}
 
 describe("convertLatencyUnit (C1)", () => {
   it("converts seconds to milliseconds", () => {
@@ -221,5 +240,37 @@ describe("cleanRow (C11 orchestration)", () => {
     expect(result.accepted).toBe(false);
     if (result.accepted) throw new Error("expected rejected");
     expect(result.row.reason).toBe("non-numeric status");
+  });
+});
+
+describe("dedupeAccepted (C4)", () => {
+  it("F5: collapses an exact duplicate pair, keeping one copy", () => {
+    const row = acceptedRow();
+    const { kept, duplicateCount } = dedupeAccepted([row, { ...row }]);
+    expect(kept).toHaveLength(1);
+    expect(duplicateCount).toBe(1);
+  });
+
+  it("F4: a real second observer at the same check-point is not a duplicate", () => {
+    const first = acceptedRow({ agent: "agent-1" });
+    const second = acceptedRow({ agent: "agent-2", latencyMs: 308 });
+    const { kept, duplicateCount } = dedupeAccepted([first, second]);
+    expect(kept).toHaveLength(2);
+    expect(duplicateCount).toBe(0);
+  });
+
+  it("treats two blank-latency rows as duplicates, matching COALESCE(latency_ms, -1) in the schema", () => {
+    const row = acceptedRow({ latencyMs: null });
+    const { kept, duplicateCount } = dedupeAccepted([row, { ...row }]);
+    expect(kept).toHaveLength(1);
+    expect(duplicateCount).toBe(1);
+  });
+
+  it("a row that differs only in status_code is not a duplicate", () => {
+    const first = acceptedRow({ statusCode: 200 });
+    const second = acceptedRow({ statusCode: 500, statusClass: "unavailable" });
+    const { kept, duplicateCount } = dedupeAccepted([first, second]);
+    expect(kept).toHaveLength(2);
+    expect(duplicateCount).toBe(0);
   });
 });

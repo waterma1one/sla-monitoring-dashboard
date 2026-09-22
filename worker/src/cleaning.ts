@@ -194,3 +194,28 @@ export function cleanRow(fields: string[], lineNo: number, raw: string): CleanRe
     },
   };
 }
+
+/**
+ * C4 (F5): discards exact duplicates within a batch of already-cleaned rows,
+ * using the same key as the schema's idx_checks_dedup unique index - so a chunk
+ * ingested through this function and one that instead hits INSERT OR IGNORE
+ * agree on what counts as a duplicate. COALESCE(latency_ms, -1) in the index
+ * means two blank-latency rows collide too; mirrored here with the same sentinel.
+ */
+export function dedupeAccepted(rows: AcceptedRow[]): { kept: AcceptedRow[]; duplicateCount: number } {
+  const seen = new Set<string>();
+  const kept: AcceptedRow[] = [];
+  let duplicateCount = 0;
+
+  for (const row of rows) {
+    const key = [row.serviceId, row.ts, row.agent, row.statusCode, row.latencyMs ?? -1].join("|");
+    if (seen.has(key)) {
+      duplicateCount++;
+      continue;
+    }
+    seen.add(key);
+    kept.push(row);
+  }
+
+  return { kept, duplicateCount };
+}
