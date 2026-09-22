@@ -1,7 +1,7 @@
 # Dev fixture manifest
 
 Derived by `scripts/build_dev_fixture.py` (seed 42) from the real datasets.
-Never hand-typed. 200 rows total, 116 chosen for a specific
+Never hand-typed. 200 rows total, 117 chosen for a specific
 finding class plus one plain epoch-format row, the rest a deterministic random sample
 of ordinary 9d rows for volume and service/day spread.
 

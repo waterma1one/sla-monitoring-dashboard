@@ -52,9 +52,12 @@ def load(filename: str) -> list[dict]:
     with path.open(newline="") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
-    for row in rows:
+    for i, row in enumerate(rows):
         row["_utc"] = parse_utc(row["timestamp"])
         row["_source"] = filename
+        row["_idx"] = i  # source-row identity: two rows CAN have identical field
+        # values (that is the F5 exact-duplicate case), so identity must not be
+        # derived from the field values themselves.
     return rows
 
 
@@ -188,7 +191,9 @@ def main() -> None:
 
     def add(rows: list[dict]):
         for r in rows:
-            key = (r["_source"], r["timestamp"], r["service_id"], r["agent"], r["status_code"], r["latency"])
+            # Identity, not field values: F5's whole point is two source rows
+            # with identical field values, and both must survive into the fixture.
+            key = (r["_source"], r["_idx"])
             if key not in selected_ids:
                 selected_ids.add(key)
                 selected.append(r)
