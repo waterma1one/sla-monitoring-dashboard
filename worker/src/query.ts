@@ -13,6 +13,14 @@ async function uploadExists(env: Env, uploadId: string): Promise<boolean> {
   return row !== null;
 }
 
+export type ServiceStats = {
+  serviceId: string;
+  serviceName: string;
+  available: number;
+  unavailable: number;
+  availability: number | null;
+};
+
 export type StatsResult = {
   from: string;
   to: string;
@@ -21,12 +29,16 @@ export type StatsResult = {
   coverage: number | null;
   degradedRate: number | null;
   latency: { mean: number | null; p95: number | null };
+  // Blended availability above can read "no credit owed" while one service breached
+  // and four did not - see docs/decisions.md section 10. Ordered by serviceId.
+  perService: ServiceStats[];
 };
 
 export type StatsOutcome = { ok: true; stats: StatsResult } | { ok: false; reason: "upload_not_found" };
 
 type StatsRow = {
   serviceId: string;
+  serviceName: string;
   ts: number;
   statusClass: CheckPointReport["statusClass"];
   latencyMs: number | null;
@@ -59,31 +71,61 @@ export async function getStats(
   const serviceCount = serviceCountRow?.n ?? 0;
 
   const rangeRows = await env.DB.prepare(
-    `SELECT service_id as serviceId, ts, status_class as statusClass, latency_ms as latencyMs
+    `SELECT service_id as serviceId, service_name as serviceName, ts,
+            status_class as statusClass, latency_ms as latencyMs
      FROM checks WHERE upload_id = ?1 AND day BETWEEN ?2 AND ?3`,
   )
     .bind(uploadId, from, to)
     .all<StatsRow>();
 
-  const groups = new Map<string, CheckPointReport[]>();
+  // Grouped by (serviceId, ts): a check-point can carry more than one report per
+  // docs/decisions.md's resolution rule. serviceName travels on the row rather than
+  // being looked up separately - see the checks table's denormalisation note.
+  const groups = new Map<string, { serviceId: string; serviceName: string; reports: CheckPointReport[] }>();
   for (const row of rangeRows.results) {
     const key = `${row.serviceId}|${row.ts}`;
     const group = groups.get(key);
-    if (group) group.push(row);
-    else groups.set(key, [row]);
+    if (group) group.reports.push(row);
+    else groups.set(key, { serviceId: row.serviceId, serviceName: row.serviceName, reports: [row] });
   }
 
   let available = 0;
   let unavailable = 0;
   let excluded = 0;
   let degraded = 0;
+  const perServiceTotals = new Map<string, { serviceName: string; available: number; unavailable: number }>();
   for (const group of groups.values()) {
-    const resolution = resolveCheckPoint(group);
+    const resolution = resolveCheckPoint(group.reports);
     if (resolution.status === "available") available += 1;
     else if (resolution.status === "unavailable") unavailable += 1;
     else excluded += 1;
     if (resolution.degraded) degraded += 1;
+
+    // Every service with a check-point in range appears in perService, excluded-only
+    // included, so a service is never silently missing - it shows availability: null
+    // instead, the same "we can't tell" signal the blended figure uses.
+    const totals = perServiceTotals.get(group.serviceId) ?? {
+      serviceName: group.serviceName,
+      available: 0,
+      unavailable: 0,
+    };
+    if (resolution.status === "available") totals.available += 1;
+    else if (resolution.status === "unavailable") totals.unavailable += 1;
+    perServiceTotals.set(group.serviceId, totals);
   }
+
+  const perService: ServiceStats[] = Array.from(perServiceTotals.entries())
+    .map(([serviceId, totals]) => ({
+      serviceId,
+      serviceName: totals.serviceName,
+      available: totals.available,
+      unavailable: totals.unavailable,
+      availability:
+        totals.available + totals.unavailable > 0
+          ? totals.available / (totals.available + totals.unavailable)
+          : null,
+    }))
+    .sort((a, b) => a.serviceId.localeCompare(b.serviceId));
 
   // Latency is computed over rows with a latency, not over resolved check-points
   // - docs/decisions.md section 1 keeps these as genuinely different sets, since
@@ -108,8 +150,38 @@ export async function getStats(
       coverage: expected > 0 ? observed / expected : null,
       degradedRate: available > 0 ? degraded / available : null,
       latency: { mean: latencyMean, p95: percentile95(latencies) },
+      perService,
     },
   };
+}
+
+export type UploadSummary = {
+  id: string;
+  filename: string;
+  uploadedAt: string;
+  status: "open" | "complete" | "failed";
+  dayFirst: string | null;
+  dayLast: string | null;
+  rowsTotal: number;
+  rowsAccepted: number;
+  rowsCorrected: number;
+  rowsRejected: number;
+  rowsDuplicate: number;
+};
+
+// Newest-first, for the dashboard's "which upload am I looking at" default. Sorted by
+// uploaded_at with rowid as a tiebreaker: uploaded_at has millisecond resolution, and
+// two uploads finishing in the same millisecond is plausible, not just a test artifact.
+export async function listUploads(env: Env): Promise<UploadSummary[]> {
+  const result = await env.DB.prepare(
+    `SELECT id, filename, uploaded_at as uploadedAt, status,
+            day_first as dayFirst, day_last as dayLast,
+            rows_total as rowsTotal, rows_accepted as rowsAccepted,
+            rows_corrected as rowsCorrected, rows_rejected as rowsRejected,
+            rows_duplicate as rowsDuplicate
+     FROM uploads ORDER BY uploaded_at DESC, rowid DESC`,
+  ).all<UploadSummary>();
+  return result.results;
 }
 
 export type LogRow = {

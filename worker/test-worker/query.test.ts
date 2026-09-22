@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { env } from "cloudflare:workers";
-import { openUpload, postChunk } from "../src/ingest";
-import { getStats, getLogs } from "../src/query";
+import { openUpload, postChunk, finalizeUpload } from "../src/ingest";
+import { getStats, getLogs, listUploads } from "../src/query";
 
 const HEADER = "service_id,service_name,timestamp,status_code,latency,latency_unit,agent,region";
 
@@ -102,6 +102,80 @@ describe("getStats", () => {
     if (!outcome.ok) return;
     expect(outcome.stats.availability).toBeNull();
     expect(outcome.stats.degradedRate).toBeNull();
+  });
+
+  it("breaks availability down per service, since a blended figure can hide a single breach", async () => {
+    const { uploadId } = await openUpload(env, "checks.csv");
+    // svc-search: 2 up, 0 down -> 100%. svc-billing: 0 up, 2 down -> 0%. Blended: 50%,
+    // which reads as "credit owed" without saying which service earned it.
+    await postChunk(
+      env,
+      uploadId,
+      0,
+      [
+        HEADER,
+        row({ service_id: "svc-search", service_name: "search-api", timestamp: "2025-05-08T00:00:00Z", status_code: "200" }),
+        row({ service_id: "svc-search", service_name: "search-api", timestamp: "2025-05-08T00:15:00Z", status_code: "200" }),
+        row({ service_id: "svc-billing", service_name: "billing-api", timestamp: "2025-05-08T00:00:00Z", status_code: "500" }),
+        row({ service_id: "svc-billing", service_name: "billing-api", timestamp: "2025-05-08T00:15:00Z", status_code: "500" }),
+      ].join("\n"),
+    );
+
+    const outcome = await getStats(env, uploadId, "2025-05-08", "2025-05-08");
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+
+    expect(outcome.stats.availability).toBeCloseTo(0.5, 5);
+    expect(outcome.stats.perService).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          serviceId: "svc-search",
+          serviceName: "search-api",
+          available: 2,
+          unavailable: 0,
+          availability: 1,
+        }),
+        expect.objectContaining({
+          serviceId: "svc-billing",
+          serviceName: "billing-api",
+          available: 0,
+          unavailable: 2,
+          availability: 0,
+        }),
+      ]),
+    );
+    expect(outcome.stats.perService).toHaveLength(2);
+  });
+
+  it("returns null per-service availability for a service with no valid check-points in range", async () => {
+    const { uploadId } = await openUpload(env, "checks.csv");
+    await postChunk(env, uploadId, 0, [HEADER, row({ status_code: "999" })].join("\n"));
+
+    const outcome = await getStats(env, uploadId, "2025-05-08", "2025-05-08");
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.stats.perService).toEqual([
+      expect.objectContaining({ serviceId: "svc-search", availability: null }),
+    ]);
+  });
+});
+
+describe("listUploads", () => {
+  it("returns uploads newest-first with their summary counts", async () => {
+    const first = await openUpload(env, "a.csv");
+    const second = await openUpload(env, "b.csv");
+    await postChunk(env, first.uploadId, 0, [HEADER, row()].join("\n"));
+    await finalizeUpload(env, first.uploadId);
+    await postChunk(env, second.uploadId, 0, [HEADER, row(), row({ status_code: "500" })].join("\n"));
+    await finalizeUpload(env, second.uploadId);
+
+    const uploads = await listUploads(env);
+    expect(uploads.map((u) => u.id)).toEqual([second.uploadId, first.uploadId]);
+    expect(uploads[0]).toMatchObject({ filename: "b.csv", status: "complete", rowsAccepted: 2 });
+  });
+
+  it("returns an empty array when no uploads exist", async () => {
+    expect(await listUploads(env)).toEqual([]);
   });
 });
 

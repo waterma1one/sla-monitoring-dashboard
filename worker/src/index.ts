@@ -1,9 +1,9 @@
 // Worker HTTP entry point. Routing only - all logic lives in ingest.ts so it stays
-// testable without a full fetch() round trip. No router dependency: three fixed
-// path shapes don't earn one.
+// testable without a full fetch() round trip. No router dependency: a handful of
+// fixed path shapes don't earn one.
 
 import { openUpload, postChunk, finalizeUpload } from "./ingest";
-import { getStats, getLogs } from "./query";
+import { getStats, getLogs, listUploads } from "./query";
 import { parseDateFilter, parsePagination } from "./queryParams";
 
 // No auth is in scope for this project (problem_statement.md), so there is no origin
@@ -41,6 +41,11 @@ export default {
       if (!body?.filename) return json({ error: "filename is required" }, 400);
       const result = await openUpload(env, body.filename);
       return json(result, 201);
+    }
+
+    // GET /uploads - newest-first, so the dashboard has something to default to.
+    if (request.method === "GET" && parts.length === 1 && parts[0] === "uploads") {
+      return json(await listUploads(env));
     }
 
     // POST /uploads/:uploadId/chunks/:chunkIndex
