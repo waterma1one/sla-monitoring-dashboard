@@ -3,13 +3,15 @@
 // path shapes don't earn one.
 
 import { openUpload, postChunk, finalizeUpload } from "./ingest";
+import { getStats, getLogs } from "./query";
+import { parseDateFilter, parsePagination } from "./queryParams";
 
 // No auth is in scope for this project (problem_statement.md), so there is no origin
 // to restrict this to - the upload UI is the only client and free-tier Workers
 // have no session/cookie boundary for this to protect.
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
@@ -70,6 +72,45 @@ export default {
       const outcome = await finalizeUpload(env, uploadId);
       if (!outcome.ok) return json({ error: outcome.reason }, statusForReason(outcome.reason));
       return json(outcome.summary);
+    }
+
+    // GET /uploads/:uploadId/stats?day=...  or  ?from=...&to=...
+    if (
+      request.method === "GET" &&
+      parts.length === 3 &&
+      parts[0] === "uploads" &&
+      parts[2] === "stats"
+    ) {
+      const uploadId = parts[1]!;
+      const dateFilter = parseDateFilter(url.searchParams);
+      if (!dateFilter.ok) return json({ error: dateFilter.error }, 400);
+      const outcome = await getStats(env, uploadId, dateFilter.filter.from, dateFilter.filter.to);
+      if (!outcome.ok) return json({ error: outcome.reason }, statusForReason(outcome.reason));
+      return json(outcome.stats);
+    }
+
+    // GET /uploads/:uploadId/logs?day=...&limit=...&cursor=...  or  ?from=...&to=...&...
+    if (
+      request.method === "GET" &&
+      parts.length === 3 &&
+      parts[0] === "uploads" &&
+      parts[2] === "logs"
+    ) {
+      const uploadId = parts[1]!;
+      const dateFilter = parseDateFilter(url.searchParams);
+      if (!dateFilter.ok) return json({ error: dateFilter.error }, 400);
+      const pagination = parsePagination(url.searchParams);
+      if (!pagination.ok) return json({ error: pagination.error }, 400);
+      const outcome = await getLogs(
+        env,
+        uploadId,
+        dateFilter.filter.from,
+        dateFilter.filter.to,
+        pagination.limit,
+        pagination.cursor,
+      );
+      if (!outcome.ok) return json({ error: outcome.reason }, statusForReason(outcome.reason));
+      return json(outcome.logs);
     }
 
     return json({ error: "not found" }, 404);
