@@ -535,3 +535,54 @@ recent. The alternatives considered were holding the id in React state (a refres
 empties the screen, which is a poor thing to discover during phase 7's live
 verification) and persisting it in `localStorage` (survives a refresh but shows a
 stale id whenever the D1 data is reset).
+
+## 11. Dashboard build (phase 6, part 2)
+
+### Upload and dashboard are two tabs in one app, not two routes
+
+The assignment names them as separate concerns (upload screen; single-screen dashboard
+with two sections). No router is added for a two-way switch - `App.tsx` holds which
+screen is showing in local state, matching the existing "no dependency without a
+concrete need" rule from earlier sections. Finishing an upload switches to the
+Dashboard tab automatically and preselects the upload just created, which is the
+"does it work end to end" path the assignment cares about most.
+
+### Stats and logs share one date filter, not two
+
+The assignment requires only the logs view to be filterable, but `getStats` is
+range-scoped too - section 1 already commits to "the dashboard computes over the
+selected date range." A single `DateFilterControl` in `Dashboard.tsx` drives both
+`StatsSection` and `LogsSection`, so the two sections are never looking at different
+ranges without saying so. The alternative, two independent pickers, was rejected for
+exactly that reason.
+
+### The date filter is debounced before it reaches the sections, not at the input
+
+Live verification (`chrome-devtools`, typing a year into the native date input one
+digit at a time) found that a `<input type="date">` reports a live intermediate value
+on every keystroke - typing "2025" reports "0005", "0050", "0508" along the way - each
+of which fired a real request at the Worker, several of them invalid. `Dashboard.tsx`
+keeps the input bound to the instant filter state for responsiveness and derives a
+second, 400ms-debounced value that `StatsSection`/`LogsSection` actually fetch against.
+This is a general lesson worth restating: a value that changes once per keystroke is
+the wrong thing to fetch against directly, regardless of which component owns it.
+
+### Verified live against the real Worker
+
+`wrangler dev` (local D1) plus the Vite dev server, driven with `chrome-devtools`:
+loaded the dashboard, confirmed the upload selector, the default date (the upload's
+`dayLast`), and both sections render against `dev_checks.csv`. Widened the range to
+the fixture's full span and got the exact figures already seen over curl - blended
+availability 95.74%, credit owed, `reports-api` at 92.92% while the other four
+services read 100% - confirming the per-service breakdown renders the real dilution
+case section 10 argued from, with `reports-api`'s row styled in red for being below
+the 99.9% threshold. Confirmed the null/no-data and validation-error paths render
+visibly rather than silently (an inverted range surfaced the Worker's own "from must
+not be after to" message in both sections). Confirmed dark mode, learning from phase
+5's bug: backgrounds are explicit, nothing relies on the browser default.
+
+Not exercised live: the "Load more" pagination button itself (its cursor mechanism is
+already covered by `query.test.ts`'s "paginates via cursor" test, and the button's
+correct appearance with a valid cursor after a real fetch confirms the wiring reaches
+it) and the upload-selector dropdown with genuinely distinct uploads (only same-named
+fixture re-uploads existed locally).
