@@ -240,10 +240,39 @@ export type FinalizeOutcome =
   | { ok: false; reason: "upload_not_found" | "upload_not_open" };
 
 export async function finalizeUpload(env: Env, uploadId: string): Promise<FinalizeOutcome> {
-  const upload = await env.DB.prepare(`SELECT status FROM uploads WHERE id = ?1`)
+  const upload = await env.DB.prepare(
+    `SELECT status, day_first as dayFirst, day_last as dayLast, rows_total as rowsTotal,
+            rows_accepted as rowsAccepted, rows_corrected as rowsCorrected,
+            rows_rejected as rowsRejected, rows_duplicate as rowsDuplicate, corrections
+     FROM uploads WHERE id = ?1`,
+  )
     .bind(uploadId)
-    .first<{ status: string }>();
+    .first<
+      Omit<UploadSummary, "uploadId" | "status" | "corrections"> & { status: string; corrections: string | null }
+    >();
   if (upload === null) return { ok: false, reason: "upload_not_found" };
+
+  // Finalising twice returns the stored summary rather than a conflict. The client
+  // retries a finalize whose response was lost, and it cannot tell that case from a
+  // finalize that never arrived; answering 409 forever would strand the upload with
+  // its rows committed and its summary unreachable.
+  if (upload.status === "complete") {
+    return {
+      ok: true,
+      summary: {
+        uploadId,
+        status: "complete",
+        dayFirst: upload.dayFirst,
+        dayLast: upload.dayLast,
+        rowsTotal: upload.rowsTotal,
+        rowsAccepted: upload.rowsAccepted,
+        rowsCorrected: upload.rowsCorrected,
+        rowsRejected: upload.rowsRejected,
+        rowsDuplicate: upload.rowsDuplicate,
+        corrections: JSON.parse(upload.corrections ?? "{}") as Record<string, number>,
+      },
+    };
+  }
   if (upload.status !== "open") return { ok: false, reason: "upload_not_open" };
 
   const totals = await env.DB.prepare(

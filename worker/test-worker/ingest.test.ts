@@ -201,12 +201,16 @@ describe("finalizeUpload", () => {
     expect(outcome).toEqual({ ok: false, reason: "upload_not_found" });
   });
 
-  it("refuses to finalize an upload twice", async () => {
+  it("finalizing twice returns the same summary rather than a conflict", async () => {
+    // A client whose finalize response was lost retries it, and cannot tell that
+    // case from a finalize that never arrived. A conflict here would strand the
+    // upload with its rows committed and its summary unreachable.
     const { uploadId } = await openUpload(env, "checks.csv");
-    await postChunk(env, uploadId, 0, [HEADER, row()].join("\n"));
-    await finalizeUpload(env, uploadId);
+    await postChunk(env, uploadId, 0, [HEADER, row({ latency: "0.5", latency_unit: "s" })].join("\n"));
 
-    const outcome = await finalizeUpload(env, uploadId);
-    expect(outcome).toEqual({ ok: false, reason: "upload_not_open" });
+    const first = await finalizeUpload(env, uploadId);
+    const replay = await finalizeUpload(env, uploadId);
+    expect(replay).toEqual(first);
+    expect(first.ok && first.summary.corrections).toEqual({ unit_converted: 1 });
   });
 });
