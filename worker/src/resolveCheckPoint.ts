@@ -1,4 +1,12 @@
-import type { AcceptedRow, StatusClass } from "./cleaning";
+import type { AcceptedRow } from "./cleaning";
+
+/**
+ * Only these two fields are read. Narrowed from AcceptedRow (rather than
+ * requiring the full shape) so the phase 4 stats query can resolve check-points
+ * straight from a lean D1 row selection without building placeholder values for
+ * fields resolution never touches.
+ */
+export type CheckPointReport = Pick<AcceptedRow, "statusClass" | "latencyMs">;
 
 export type CheckPointStatus = "available" | "unavailable" | "excluded";
 
@@ -32,7 +40,7 @@ export type CheckPointResolution = {
  * group. Never empty in practice (a check-point implies at least one report),
  * but do not assume that here without checking - defend that call in review.
  */
-export function resolveCheckPoint(reports: AcceptedRow[]): CheckPointResolution {
+export function resolveCheckPoint(reports: CheckPointReport[]): CheckPointResolution {
   const valid = reports.filter((r) => r.statusClass !== "invalid");
 
   if (valid.length === 0) {
