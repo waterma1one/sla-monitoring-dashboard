@@ -325,13 +325,24 @@ denominator scaled against the full requested span. My guess was wrong, not the 
 
 ## What I would do differently with more time
 
+**Write tests that look at strings, not only at numbers.** A review pass over the finished
+code found that every stored `region` was `"ap-south-1\r"`: the source CSVs are CRLF and
+both the Worker and the browser split chunks on `"\n"`, so a carriage return stayed on the
+last column. It changed no SLA figure, which is why nothing caught it — but it survived 93
+tests, a full-volume upload and a live sign-off, because every assertion I had written
+looked at a count or a latency. That review found nine defects in all; they are fixed, and
+what each one changed is in `docs/decisions.md` section 13. The lesson I would carry
+forward is that a test suite which only ever asserts on arithmetic will keep passing while
+the data rots underneath it.
+
 **Test the resumable-retry path for real.** If a chunk POST fails partway through, the UI
 keeps the upload id and offers a retry that resumes from the failed chunk rather than from
-zero. It is implemented and type-checked, and it falls out of ingest's per-chunk
-idempotency, but no upload has ever actually failed mid-flight — the full-volume run
-succeeded cleanly. I would deliberately kill the network mid-chunk and watch it recover,
-rather than find out the first time it matters. This is the weakest part of the
-submission and it is where I would start.
+zero. The review showed one of its three paths was provably wrong — a finalize whose
+response was lost got a 409 forever, stranding the upload with its rows committed and its
+summary unreachable — which is exactly the kind of thing that only shows up when the path
+is exercised. That case is fixed by making finalize idempotent, but no upload has ever
+actually failed mid-flight. I would deliberately kill the network mid-chunk and watch it
+recover, rather than find out the first time it matters.
 
 **Move stats grouping into SQL, or precompute it.** `getStats` currently fetches every row
 in the range and groups it into check-points in JavaScript, because worst-status-wins and
