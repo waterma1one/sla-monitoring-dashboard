@@ -33,5 +33,24 @@ export type CheckPointResolution = {
  * but do not assume that here without checking - defend that call in review.
  */
 export function resolveCheckPoint(reports: AcceptedRow[]): CheckPointResolution {
-  throw new Error("not implemented - see worker/test/resolveCheckPoint.test.ts");
+  const valid = reports.filter((r) => r.statusClass !== "invalid");
+
+  if (valid.length === 0) {
+    return { status: "excluded", latencyMs: null, degraded: false };
+  }
+
+  const status: CheckPointStatus = valid.some((r) => r.statusClass === "unavailable")
+    ? "unavailable"
+    : "available";
+
+  const latencies = valid
+    .map((r) => r.latencyMs)
+    .filter((ms): ms is number => ms !== null);
+  const latencyMs = latencies.length > 0
+    ? latencies.reduce((sum, ms) => sum + ms, 0) / latencies.length
+    : null;
+
+  const degraded = status === "available" && latencyMs !== null && latencyMs > 1000;
+
+  return { status, latencyMs, degraded };
 }
