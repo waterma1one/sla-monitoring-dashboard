@@ -99,3 +99,98 @@ const DEGRADED_THRESHOLD_MS = 1000;
 export function computeDegraded(statusClass: StatusClass, latencyMs: number | null): boolean {
   return statusClass === "available" && latencyMs !== null && latencyMs > DEGRADED_THRESHOLD_MS;
 }
+
+export type AcceptedRow = {
+  serviceId: string;
+  serviceName: string;
+  region: string;
+  agent: string;
+  ts: number;
+  day: string;
+  statusCode: number;
+  statusClass: StatusClass;
+  latencyMs: number | null;
+  degraded: boolean;
+  corrections: string[];
+};
+
+export type RejectedRow = {
+  lineNo: number;
+  raw: string;
+  reason: string;
+};
+
+export type CleanResult =
+  | { accepted: true; row: AcceptedRow }
+  | { accepted: false; row: RejectedRow };
+
+const EXPECTED_FIELD_COUNT = 8;
+
+/**
+ * C11 orchestration: structural validation, then C1-C3 and C6-C9 wired together.
+ * A structurally broken row - wrong field count, unparseable timestamp, a
+ * non-numeric latency or status - is rejected with a reason rather than cleaned.
+ * None of these four cases occurs in the five source files, but the Worker must
+ * still handle them per docs/decisions.md C11.
+ */
+export function cleanRow(fields: string[], lineNo: number, raw: string): CleanResult {
+  if (fields.length !== EXPECTED_FIELD_COUNT) {
+    return { accepted: false, row: { lineNo, raw, reason: "wrong field count" } };
+  }
+
+  const [serviceId, serviceName, timestamp, statusCodeRaw, latencyRaw, latencyUnit, agent, region] = fields as [
+    string, string, string, string, string, string, string, string,
+  ];
+
+  const parsedTs = parseTimestamp(timestamp);
+  if (parsedTs === null) {
+    return { accepted: false, row: { lineNo, raw, reason: "unparseable timestamp" } };
+  }
+
+  if (statusCodeRaw.trim() === "" || !Number.isFinite(Number(statusCodeRaw))) {
+    return { accepted: false, row: { lineNo, raw, reason: "non-numeric status" } };
+  }
+  const statusCode = Number(statusCodeRaw);
+
+  const parsedLatency = parseLatencyField(latencyRaw);
+  if (parsedLatency.kind === "invalid") {
+    return { accepted: false, row: { lineNo, raw, reason: "non-numeric latency" } };
+  }
+
+  const corrections: string[] = [];
+  if (parsedTs.correction) corrections.push(parsedTs.correction);
+
+  let latencyMs: number | null;
+  if (parsedLatency.kind === "blank") {
+    latencyMs = null;
+    corrections.push("latency_missing");
+  } else {
+    if (latencyUnit === "s") corrections.push("unit_converted");
+    const converted = convertLatencyUnit(parsedLatency.value, latencyUnit);
+    const nulled = nullIfNegative(converted);
+    if (nulled === null) corrections.push("latency_negative");
+    latencyMs = nulled;
+  }
+
+  const statusClass = classifyStatus(statusCode);
+  if (statusClass === "invalid") corrections.push("status_invalid");
+
+  const degraded = computeDegraded(statusClass, latencyMs);
+
+  return {
+    accepted: true,
+    row: {
+      serviceId,
+      serviceName,
+      region,
+      agent,
+      ts: parsedTs.epochSeconds,
+      day: deriveDay(parsedTs.epochSeconds),
+      statusCode,
+      statusClass,
+      latencyMs,
+      degraded,
+      corrections,
+    },
+  };
+}

@@ -7,6 +7,7 @@ import {
   nullIfNegative,
   parseLatencyField,
   computeDegraded,
+  cleanRow,
 } from "../src/cleaning";
 
 describe("convertLatencyUnit (C1)", () => {
@@ -125,5 +126,100 @@ describe("computeDegraded (C9)", () => {
 
   it("a null latency is never degraded", () => {
     expect(computeDegraded("available", null)).toBe(false);
+  });
+});
+
+describe("cleanRow (C11 orchestration)", () => {
+  const clean = (fields: string[]) => cleanRow(fields, 1, fields.join(","));
+
+  it("accepts a clean row with no corrections", () => {
+    const result = clean(["svc-auth", "auth-api", "2025-04-16T18:00:00Z", "200", "300", "ms", "agent-1", "ap-south-1"]);
+    expect(result.accepted).toBe(true);
+    if (!result.accepted) throw new Error("expected accepted");
+    expect(result.row).toMatchObject({
+      serviceId: "svc-auth",
+      statusCode: 200,
+      statusClass: "available",
+      latencyMs: 300,
+      degraded: false,
+      corrections: [],
+    });
+  });
+
+  it("F1: converts a seconds-latency row and flags unit_converted", () => {
+    const result = clean(["svc-search", "search-api", "2025-05-31T11:00:00Z", "200", "0.632", "s", "agent-1", "ap-south-1"]);
+    if (!result.accepted) throw new Error("expected accepted");
+    expect(result.row.latencyMs).toBe(632);
+    expect(result.row.corrections).toContain("unit_converted");
+  });
+
+  it("F8: a 999 status is invalid but its latency still cleans normally", () => {
+    const result = clean(["svc-payments", "payments-api", "2025-05-10T22:30:00Z", "999", "389", "ms", "agent-1", "ap-south-1"]);
+    if (!result.accepted) throw new Error("expected accepted");
+    expect(result.row.statusClass).toBe("invalid");
+    expect(result.row.latencyMs).toBe(389);
+    expect(result.row.corrections).toContain("status_invalid");
+  });
+
+  it("F9: a negative latency is nulled and flagged, status untouched", () => {
+    const result = clean(["svc-notify", "notify-worker", "2025-04-19T14:15:00Z", "200", "-296", "ms", "agent-1", "ap-south-1"]);
+    if (!result.accepted) throw new Error("expected accepted");
+    expect(result.row.latencyMs).toBeNull();
+    expect(result.row.statusClass).toBe("available");
+    expect(result.row.corrections).toContain("latency_negative");
+  });
+
+  it("F10: a blank latency is nulled and flagged, row still accepted", () => {
+    const result = clean(["svc-reports", "reports-api", "2025-05-13T15:30:00Z", "200", "", "ms", "agent-1", "ap-south-1"]);
+    if (!result.accepted) throw new Error("expected accepted");
+    expect(result.row.latencyMs).toBeNull();
+    expect(result.row.corrections).toContain("latency_missing");
+  });
+
+  it("F2: an epoch-format timestamp is flagged ts_epoch", () => {
+    const result = clean(["svc-auth", "auth-api", "1744349400", "200", "300", "ms", "agent-1", "ap-south-1"]);
+    if (!result.accepted) throw new Error("expected accepted");
+    expect(result.row.corrections).toContain("ts_epoch");
+  });
+
+  it("F3: a +05:30 offset row is flagged ts_offset and its day is the UTC day", () => {
+    const result = clean(["svc-search", "search-api", "2025-06-01T02:30:00+05:30", "200", "300", "ms", "agent-1", "ap-south-1"]);
+    if (!result.accepted) throw new Error("expected accepted");
+    expect(result.row.corrections).toContain("ts_offset");
+    expect(result.row.day).toBe("2025-05-31");
+  });
+
+  it("F11: a slow available row is flagged degraded", () => {
+    const result = clean(["svc-reports", "reports-api", "2025-05-13T16:30:00Z", "200", "2193", "ms", "agent-1", "ap-south-1"]);
+    if (!result.accepted) throw new Error("expected accepted");
+    expect(result.row.degraded).toBe(true);
+  });
+
+  it("C11: rejects a row with the wrong field count", () => {
+    const result = clean(["svc-auth", "auth-api", "2025-04-16T18:00:00Z", "200", "300", "ms", "agent-1"]);
+    expect(result.accepted).toBe(false);
+    if (result.accepted) throw new Error("expected rejected");
+    expect(result.row.reason).toBe("wrong field count");
+  });
+
+  it("C11: rejects a row with an unparseable timestamp", () => {
+    const result = clean(["svc-auth", "auth-api", "not-a-timestamp", "200", "300", "ms", "agent-1", "ap-south-1"]);
+    expect(result.accepted).toBe(false);
+    if (result.accepted) throw new Error("expected rejected");
+    expect(result.row.reason).toBe("unparseable timestamp");
+  });
+
+  it("C11: rejects a row with a non-numeric latency", () => {
+    const result = clean(["svc-auth", "auth-api", "2025-04-16T18:00:00Z", "200", "N/A", "ms", "agent-1", "ap-south-1"]);
+    expect(result.accepted).toBe(false);
+    if (result.accepted) throw new Error("expected rejected");
+    expect(result.row.reason).toBe("non-numeric latency");
+  });
+
+  it("C11: rejects a row with a non-numeric status code", () => {
+    const result = clean(["svc-auth", "auth-api", "2025-04-16T18:00:00Z", "abc", "300", "ms", "agent-1", "ap-south-1"]);
+    expect(result.accepted).toBe(false);
+    if (result.accepted) throw new Error("expected rejected");
+    expect(result.row.reason).toBe("non-numeric status");
   });
 });
