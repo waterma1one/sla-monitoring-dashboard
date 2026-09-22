@@ -39,3 +39,12 @@ export function parseTimestamp(raw: string): ParsedTimestamp | null {
   }
   return null;
 }
+
+/**
+ * C3 (F3): the stored day is derived from the UTC instant after C2, never from
+ * the calendar date written in the source string - so a +05:30 row near midnight
+ * cannot leak into the wrong billing day.
+ */
+export function deriveDay(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toISOString().slice(0, 10);
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { convertLatencyUnit, parseTimestamp } from "../src/cleaning";
+import { convertLatencyUnit, parseTimestamp, deriveDay } from "../src/cleaning";
 
 describe("convertLatencyUnit (C1)", () => {
   it("converts seconds to milliseconds", () => {
@@ -36,5 +36,18 @@ describe("parseTimestamp (C2)", () => {
 
   it("returns null for an unparseable timestamp", () => {
     expect(parseTimestamp("not-a-timestamp")).toBeNull();
+  });
+});
+
+describe("deriveDay (C3)", () => {
+  it("derives the UTC calendar date from an epoch instant", () => {
+    const epochSeconds = Date.UTC(2025, 3, 16, 19, 0, 0) / 1000;
+    expect(deriveDay(epochSeconds)).toBe("2025-04-16");
+  });
+
+  it("F3: a +05:30 instant just after local midnight lands on the prior UTC day", () => {
+    // 2025-06-01T02:30:00+05:30 is 2025-05-31T21:00:00Z - a different calendar date.
+    const parsed = parseTimestamp("2025-06-01T02:30:00+05:30")!;
+    expect(deriveDay(parsed.epochSeconds)).toBe("2025-05-31");
   });
 });
