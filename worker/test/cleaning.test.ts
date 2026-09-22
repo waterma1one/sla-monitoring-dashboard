@@ -6,6 +6,7 @@ import {
   classifyStatus,
   nullIfNegative,
   parseLatencyField,
+  computeDegraded,
 } from "../src/cleaning";
 
 describe("convertLatencyUnit (C1)", () => {
@@ -106,5 +107,23 @@ describe("parseLatencyField (C8, and the latency half of C11)", () => {
 
   it("C11: a non-numeric latency is invalid, for the caller to reject", () => {
     expect(parseLatencyField("not-a-number")).toEqual({ kind: "invalid" });
+  });
+});
+
+describe("computeDegraded (C9)", () => {
+  it("F11: an available check-point over 1000ms is degraded", () => {
+    expect(computeDegraded("available", 2193)).toBe(true);
+  });
+
+  it("an available check-point at or under 1000ms is not degraded", () => {
+    expect(computeDegraded("available", 754)).toBe(false);
+  });
+
+  it("a slow response never makes uptime the deciding factor - unavailable is never degraded", () => {
+    expect(computeDegraded("unavailable", 3000)).toBe(false);
+  });
+
+  it("a null latency is never degraded", () => {
+    expect(computeDegraded("available", null)).toBe(false);
   });
 });

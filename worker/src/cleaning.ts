@@ -88,3 +88,14 @@ export function parseLatencyField(raw: string): ParsedLatency {
   if (Number.isNaN(value)) return { kind: "invalid" };
   return { kind: "value", value };
 }
+
+const DEGRADED_THRESHOLD_MS = 1000;
+
+/**
+ * C9 (F11): a slow-but-successful response is flagged degraded, never counted
+ * as downtime - a latency threshold must never silently change the credit owed.
+ * 1000ms is the smallest round number above the observed p95 of 754-766ms.
+ */
+export function computeDegraded(statusClass: StatusClass, latencyMs: number | null): boolean {
+  return statusClass === "available" && latencyMs !== null && latencyMs > DEGRADED_THRESHOLD_MS;
+}
