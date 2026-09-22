@@ -28,96 +28,108 @@ function statusForReason(reason: "upload_not_found" | "upload_not_open"): number
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: CORS_HEADERS });
+    // Every thrown error has to come back through json(), because Cloudflare's
+    // default 500 carries no CORS header. The browser then reports an opaque
+    // TypeError instead of the status, and the UI can only say "unknown error".
+    try {
+      return await route(request, env);
+    } catch (err) {
+      console.error(err);
+      return json({ error: err instanceof Error ? err.message : "internal error" }, 500);
     }
-
-    const url = new URL(request.url);
-    const parts = url.pathname.split("/").filter(Boolean);
-
-    // POST /uploads
-    if (request.method === "POST" && parts.length === 1 && parts[0] === "uploads") {
-      const body = (await request.json().catch(() => null)) as { filename?: string } | null;
-      if (!body?.filename) return json({ error: "filename is required" }, 400);
-      const result = await openUpload(env, body.filename);
-      return json(result, 201);
-    }
-
-    // GET /uploads - newest-first, so the dashboard has something to default to.
-    if (request.method === "GET" && parts.length === 1 && parts[0] === "uploads") {
-      return json(await listUploads(env));
-    }
-
-    // POST /uploads/:uploadId/chunks/:chunkIndex
-    if (
-      request.method === "POST" &&
-      parts.length === 4 &&
-      parts[0] === "uploads" &&
-      parts[2] === "chunks"
-    ) {
-      const uploadId = parts[1]!;
-      const chunkIndex = Number(parts[3]);
-      if (!Number.isInteger(chunkIndex) || chunkIndex < 0) {
-        return json({ error: "chunk index must be a non-negative integer" }, 400);
-      }
-      const chunkText = await request.text();
-      const outcome = await postChunk(env, uploadId, chunkIndex, chunkText);
-      if (!outcome.ok) return json({ error: outcome.reason }, statusForReason(outcome.reason));
-      return json(outcome.summary);
-    }
-
-    // POST /uploads/:uploadId/finalize
-    if (
-      request.method === "POST" &&
-      parts.length === 3 &&
-      parts[0] === "uploads" &&
-      parts[2] === "finalize"
-    ) {
-      const uploadId = parts[1]!;
-      const outcome = await finalizeUpload(env, uploadId);
-      if (!outcome.ok) return json({ error: outcome.reason }, statusForReason(outcome.reason));
-      return json(outcome.summary);
-    }
-
-    // GET /uploads/:uploadId/stats?day=...  or  ?from=...&to=...
-    if (
-      request.method === "GET" &&
-      parts.length === 3 &&
-      parts[0] === "uploads" &&
-      parts[2] === "stats"
-    ) {
-      const uploadId = parts[1]!;
-      const dateFilter = parseDateFilter(url.searchParams);
-      if (!dateFilter.ok) return json({ error: dateFilter.error }, 400);
-      const outcome = await getStats(env, uploadId, dateFilter.filter.from, dateFilter.filter.to);
-      if (!outcome.ok) return json({ error: outcome.reason }, statusForReason(outcome.reason));
-      return json(outcome.stats);
-    }
-
-    // GET /uploads/:uploadId/logs?day=...&limit=...&cursor=...  or  ?from=...&to=...&...
-    if (
-      request.method === "GET" &&
-      parts.length === 3 &&
-      parts[0] === "uploads" &&
-      parts[2] === "logs"
-    ) {
-      const uploadId = parts[1]!;
-      const dateFilter = parseDateFilter(url.searchParams);
-      if (!dateFilter.ok) return json({ error: dateFilter.error }, 400);
-      const pagination = parsePagination(url.searchParams);
-      if (!pagination.ok) return json({ error: pagination.error }, 400);
-      const outcome = await getLogs(
-        env,
-        uploadId,
-        dateFilter.filter.from,
-        dateFilter.filter.to,
-        pagination.limit,
-        pagination.cursor,
-      );
-      if (!outcome.ok) return json({ error: outcome.reason }, statusForReason(outcome.reason));
-      return json(outcome.logs);
-    }
-
-    return json({ error: "not found" }, 404);
   },
 };
+
+async function route(request: Request, env: Env): Promise<Response> {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { headers: CORS_HEADERS });
+  }
+
+  const url = new URL(request.url);
+  const parts = url.pathname.split("/").filter(Boolean);
+
+  // POST /uploads
+  if (request.method === "POST" && parts.length === 1 && parts[0] === "uploads") {
+    const body = (await request.json().catch(() => null)) as { filename?: string } | null;
+    if (!body?.filename) return json({ error: "filename is required" }, 400);
+    const result = await openUpload(env, body.filename);
+    return json(result, 201);
+  }
+
+  // GET /uploads - newest-first, so the dashboard has something to default to.
+  if (request.method === "GET" && parts.length === 1 && parts[0] === "uploads") {
+    return json(await listUploads(env));
+  }
+
+  // POST /uploads/:uploadId/chunks/:chunkIndex
+  if (
+    request.method === "POST" &&
+    parts.length === 4 &&
+    parts[0] === "uploads" &&
+    parts[2] === "chunks"
+  ) {
+    const uploadId = parts[1]!;
+    const chunkIndex = Number(parts[3]);
+    if (!Number.isInteger(chunkIndex) || chunkIndex < 0) {
+      return json({ error: "chunk index must be a non-negative integer" }, 400);
+    }
+    const chunkText = await request.text();
+    const outcome = await postChunk(env, uploadId, chunkIndex, chunkText);
+    if (!outcome.ok) return json({ error: outcome.reason }, statusForReason(outcome.reason));
+    return json(outcome.summary);
+  }
+
+  // POST /uploads/:uploadId/finalize
+  if (
+    request.method === "POST" &&
+    parts.length === 3 &&
+    parts[0] === "uploads" &&
+    parts[2] === "finalize"
+  ) {
+    const uploadId = parts[1]!;
+    const outcome = await finalizeUpload(env, uploadId);
+    if (!outcome.ok) return json({ error: outcome.reason }, statusForReason(outcome.reason));
+    return json(outcome.summary);
+  }
+
+  // GET /uploads/:uploadId/stats?day=...  or  ?from=...&to=...
+  if (
+    request.method === "GET" &&
+    parts.length === 3 &&
+    parts[0] === "uploads" &&
+    parts[2] === "stats"
+  ) {
+    const uploadId = parts[1]!;
+    const dateFilter = parseDateFilter(url.searchParams);
+    if (!dateFilter.ok) return json({ error: dateFilter.error }, 400);
+    const outcome = await getStats(env, uploadId, dateFilter.filter.from, dateFilter.filter.to);
+    if (!outcome.ok) return json({ error: outcome.reason }, statusForReason(outcome.reason));
+    return json(outcome.stats);
+  }
+
+  // GET /uploads/:uploadId/logs?day=...&limit=...&cursor=...  or  ?from=...&to=...&...
+  if (
+    request.method === "GET" &&
+    parts.length === 3 &&
+    parts[0] === "uploads" &&
+    parts[2] === "logs"
+  ) {
+    const uploadId = parts[1]!;
+    const dateFilter = parseDateFilter(url.searchParams);
+    if (!dateFilter.ok) return json({ error: dateFilter.error }, 400);
+    const pagination = parsePagination(url.searchParams);
+    if (!pagination.ok) return json({ error: pagination.error }, 400);
+    const outcome = await getLogs(
+      env,
+      uploadId,
+      dateFilter.filter.from,
+      dateFilter.filter.to,
+      pagination.limit,
+      pagination.cursor,
+    );
+    if (!outcome.ok) return json({ error: outcome.reason }, statusForReason(outcome.reason));
+    return json(outcome.logs);
+  }
+
+  return json({ error: "not found" }, 404);
+}
