@@ -191,3 +191,108 @@ export async function postChunk(
 
   return { ok: true, summary };
 }
+
+export type UploadSummary = {
+  uploadId: string;
+  status: "complete";
+  dayFirst: string | null;
+  dayLast: string | null;
+  rowsTotal: number;
+  rowsAccepted: number;
+  rowsCorrected: number;
+  rowsRejected: number;
+  rowsDuplicate: number;
+  corrections: Record<string, number>;
+};
+
+export type FinalizeOutcome =
+  | { ok: true; summary: UploadSummary }
+  | { ok: false; reason: "upload_not_found" | "upload_not_open" };
+
+export async function finalizeUpload(env: Env, uploadId: string): Promise<FinalizeOutcome> {
+  const upload = await env.DB.prepare(`SELECT status FROM uploads WHERE id = ?1`)
+    .bind(uploadId)
+    .first<{ status: string }>();
+  if (upload === null) return { ok: false, reason: "upload_not_found" };
+  if (upload.status !== "open") return { ok: false, reason: "upload_not_open" };
+
+  const totals = await env.DB.prepare(
+    `SELECT COALESCE(SUM(rows_total),0) as rowsTotal, COALESCE(SUM(rows_accepted),0) as rowsAccepted,
+            COALESCE(SUM(rows_corrected),0) as rowsCorrected, COALESCE(SUM(rows_rejected),0) as rowsRejected,
+            COALESCE(SUM(rows_duplicate),0) as rowsDuplicate
+     FROM upload_chunks WHERE upload_id = ?1`,
+  )
+    .bind(uploadId)
+    .first<{
+      rowsTotal: number;
+      rowsAccepted: number;
+      rowsCorrected: number;
+      rowsRejected: number;
+      rowsDuplicate: number;
+    }>();
+
+  const dayRange = await env.DB.prepare(
+    `SELECT MIN(day) as dayFirst, MAX(day) as dayLast FROM checks WHERE upload_id = ?1`,
+  )
+    .bind(uploadId)
+    .first<{ dayFirst: string | null; dayLast: string | null }>();
+
+  // Per-rule correction counts (uploads.corrections, docs/decisions.md section 5) are
+  // grouped rather than scanned row by row - the distinct correction-string combinations
+  // are few, so this is one cheap aggregate query over however many rows the upload has.
+  const correctionGroups = await env.DB.prepare(
+    `SELECT corrections, COUNT(*) as cnt FROM checks WHERE upload_id = ?1 AND corrections != '' GROUP BY corrections`,
+  )
+    .bind(uploadId)
+    .all<{ corrections: string; cnt: number }>();
+
+  const corrections: Record<string, number> = {};
+  for (const group of correctionGroups.results) {
+    for (const flag of group.corrections.split(",")) {
+      corrections[flag] = (corrections[flag] ?? 0) + group.cnt;
+    }
+  }
+
+  const dayFirst = dayRange?.dayFirst ?? null;
+  const dayLast = dayRange?.dayLast ?? null;
+  const rowsTotal = totals?.rowsTotal ?? 0;
+  const rowsAccepted = totals?.rowsAccepted ?? 0;
+  const rowsCorrected = totals?.rowsCorrected ?? 0;
+  const rowsRejected = totals?.rowsRejected ?? 0;
+  const rowsDuplicate = totals?.rowsDuplicate ?? 0;
+
+  await env.DB.prepare(
+    `UPDATE uploads SET status = 'complete', day_first = ?2, day_last = ?3,
+            rows_total = ?4, rows_accepted = ?5, rows_corrected = ?6, rows_rejected = ?7,
+            rows_duplicate = ?8, corrections = ?9
+     WHERE id = ?1`,
+  )
+    .bind(
+      uploadId,
+      dayFirst,
+      dayLast,
+      rowsTotal,
+      rowsAccepted,
+      rowsCorrected,
+      rowsRejected,
+      rowsDuplicate,
+      JSON.stringify(corrections),
+    )
+    .run();
+
+  return {
+    ok: true,
+    summary: {
+      uploadId,
+      status: "complete",
+      dayFirst,
+      dayLast,
+      rowsTotal,
+      rowsAccepted,
+      rowsCorrected,
+      rowsRejected,
+      rowsDuplicate,
+      corrections,
+    },
+  };
+}

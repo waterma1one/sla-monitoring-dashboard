@@ -2,7 +2,7 @@
 // testable without a full fetch() round trip. No router dependency: three fixed
 // path shapes don't earn one.
 
-import { openUpload, postChunk } from "./ingest";
+import { openUpload, postChunk, finalizeUpload } from "./ingest";
 
 // No auth is in scope for this project (problem_statement.md), so there is no origin
 // to restrict this to - the upload UI is the only client and free-tier Workers
@@ -55,6 +55,19 @@ export default {
       }
       const chunkText = await request.text();
       const outcome = await postChunk(env, uploadId, chunkIndex, chunkText);
+      if (!outcome.ok) return json({ error: outcome.reason }, statusForReason(outcome.reason));
+      return json(outcome.summary);
+    }
+
+    // POST /uploads/:uploadId/finalize
+    if (
+      request.method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "uploads" &&
+      parts[2] === "finalize"
+    ) {
+      const uploadId = parts[1]!;
+      const outcome = await finalizeUpload(env, uploadId);
       if (!outcome.ok) return json({ error: outcome.reason }, statusForReason(outcome.reason));
       return json(outcome.summary);
     }
