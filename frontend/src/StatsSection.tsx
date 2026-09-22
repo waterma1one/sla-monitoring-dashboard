@@ -28,6 +28,11 @@ export default function StatsSection({ uploadId, filter }: { uploadId: string; f
     if (!filterReady) return;
     let cancelled = false;
     setError(null);
+    // Clear the previous upload's or date's figures before fetching. Leaving them
+    // up renders one upload's availability and credit verdict under another's
+    // heading, and keeps them on screen beside the error if the request fails -
+    // the worst possible outcome for a number someone might bill against.
+    setStats(null);
     getStats(uploadId, filter).then(
       (result) => {
         if (!cancelled) setStats(result);
@@ -58,6 +63,9 @@ export default function StatsSection({ uploadId, filter }: { uploadId: string; f
       {open && (
         <div className="border-t border-slate-300 p-4 dark:border-slate-700">
           {!filterReady && <p className="text-sm text-slate-500 dark:text-slate-400">Pick a date to see stats.</p>}
+          {filterReady && !stats && !error && (
+            <p className="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
+          )}
           {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
           {stats && (

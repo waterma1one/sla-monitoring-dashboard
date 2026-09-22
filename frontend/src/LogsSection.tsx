@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getLogs, WorkerError, type DateFilter, type LogRow } from "./api";
 
 const PAGE_SIZE = 100;
@@ -17,8 +17,15 @@ export default function LogsSection({ uploadId, filter }: { uploadId: string; fi
 
   const filterReady = "day" in filter ? filter.day !== "" : filter.from !== "" && filter.to !== "";
   const filterKey = "day" in filter ? filter.day : `${filter.from}:${filter.to}`;
+  // What the view is currently showing. loadMore reads it after its request
+  // resolves: a page fetched under the old filter must not be appended to the new
+  // one, which would mix two date ranges in the table and leave the cursor
+  // pointing into the wrong result set.
+  const shownKey = `${uploadId}|${filterKey}`;
+  const activeKey = useRef(shownKey);
 
   useEffect(() => {
+    activeKey.current = shownKey;
     if (!filterReady) return;
     let cancelled = false;
     setError(null);
@@ -42,12 +49,15 @@ export default function LogsSection({ uploadId, filter }: { uploadId: string; fi
 
   async function loadMore() {
     if (!cursor) return;
+    const requestedFor = shownKey;
     setLoadingMore(true);
     try {
       const result = await getLogs(uploadId, filter, { limit: PAGE_SIZE, cursor });
+      if (activeKey.current !== requestedFor) return;
       setRows((prev) => [...prev, ...result.rows]);
       setCursor(result.nextCursor);
     } catch (err) {
+      if (activeKey.current !== requestedFor) return;
       setError(err instanceof WorkerError ? err.message : "Could not load more logs.");
     } finally {
       setLoadingMore(false);
