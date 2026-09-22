@@ -323,6 +323,12 @@ identical to the single-day view but with lower coverage. That is correct behavi
 `day BETWEEN` matched only the one day that actually overlapped, while coverage's
 denominator scaled against the full requested span. My guess was wrong, not the query.
 
+The fixes described in `docs/decisions.md` section 13 came after that verification and
+have not been deployed. They are verified locally — 97 tests, and an end-to-end run
+against `wrangler dev` with local D1 — so the live site still runs the pre-fix Worker,
+and the rows already in the remote database still carry the carriage return on `region`.
+Redeploying and re-uploading the file clears both.
+
 ## What I would do differently with more time
 
 **Write tests that look at strings, not only at numbers.** A review pass over the finished
