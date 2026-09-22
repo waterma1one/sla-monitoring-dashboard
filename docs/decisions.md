@@ -300,3 +300,47 @@ decides the page size; the schema just needs the stable tiebreaker to exist.
 worth writing by hand rather than generating. It encodes Q1, Q2, and Q3 together, it is a
 pure function with obvious known-bad inputs from `docs/data-findings.md`, and it is the
 single thing a follow-up discussion is most likely to attack.
+
+## 7. Ingest implementation (phase 3)
+
+### `resolveCheckPoint` written by the assistant, not by hand
+
+Section 6 above asks for this function to be hand-written. It was implemented by the
+assistant instead, on the user's explicit live authorization to push through standing
+process gates rather than stop and wait. This is not a retraction of the reasoning in
+section 6 — the function is still the single piece most likely to be attacked in a
+follow-up discussion — only a record of who actually wrote it and why the standing
+instruction was overridden this once.
+
+### Rejected rows use the same batch-insert shape as accepted rows
+
+The batching math above (500 rows/statement) was worked out for the accepted-rows path.
+Rejected rows are quarantined through the same `json_each` batch insert, not one `INSERT`
+per row, because a chunk that is mostly or entirely structurally invalid would otherwise
+blow the 50-query-per-invocation budget on the reject path alone. Same batch size, same
+reasoning as the accepted path.
+
+### `rows_corrected` is counted pre-dedup
+
+`INSERT OR IGNORE ... SELECT ... FROM json_each(...)` reports how many rows were ignored
+only as a count (`meta.changes`), not which ones. Getting an exact post-dedup corrected
+count would need a `RETURNING` clause, and current D1 support for `RETURNING` on this
+insert shape was not confirmed against the docs, so it was not assumed. `rows_corrected`
+is therefore counted before the dedup check runs, which can overcount by at most the
+chunk's `rows_duplicate` count, in the rare case a corrected row is also a cross-chunk
+exact duplicate. Bounded, and `rows_duplicate` is reported in the same summary alongside
+it, so the discrepancy is visible rather than hidden.
+
+### CORS is open on all three ingest endpoints
+
+`Access-Control-Allow-Origin: *`. No authentication is in scope per the assignment, so
+there is no session or cookie boundary this would weaken, and the upload UI (phase 5) is
+the only client this is meant to serve.
+
+### `wrangler types` output replaces `@cloudflare/workers-types`
+
+`@cloudflare/workers-types` was added, then removed once `wrangler types` printed its own
+recommendation to generate `worker-configuration.d.ts` instead and drop the separate
+package. The generated file is committed, per Cloudflare's own default template
+`.gitignore`, and gets regenerated with `npm run types` after any `wrangler.jsonc` binding
+change.
