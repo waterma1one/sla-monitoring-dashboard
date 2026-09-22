@@ -5,6 +5,7 @@ import {
   deriveDay,
   classifyStatus,
   nullIfNegative,
+  parseLatencyField,
 } from "../src/cleaning";
 
 describe("convertLatencyUnit (C1)", () => {
@@ -91,5 +92,19 @@ describe("nullIfNegative (C7)", () => {
 
   it("leaves zero unchanged", () => {
     expect(nullIfNegative(0)).toBe(0);
+  });
+});
+
+describe("parseLatencyField (C8, and the latency half of C11)", () => {
+  it("parses a numeric latency string", () => {
+    expect(parseLatencyField("389")).toEqual({ kind: "value", value: 389 });
+  });
+
+  it("F10: recognises a genuinely empty field as blank, not invalid", () => {
+    expect(parseLatencyField("")).toEqual({ kind: "blank" });
+  });
+
+  it("C11: a non-numeric latency is invalid, for the caller to reject", () => {
+    expect(parseLatencyField("not-a-number")).toEqual({ kind: "invalid" });
   });
 });

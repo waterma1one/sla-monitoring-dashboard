@@ -70,3 +70,21 @@ export function classifyStatus(code: number): StatusClass {
 export function nullIfNegative(value: number): number | null {
   return value < 0 ? null : value;
 }
+
+export type ParsedLatency =
+  | { kind: "value"; value: number }
+  | { kind: "blank" }
+  | { kind: "invalid" };
+
+/**
+ * C8 (F10) and the latency half of C11: a genuinely empty field is blank - the
+ * check still ran and still counts toward availability, it just contributes no
+ * latency. Anything present but not a number is structurally invalid instead,
+ * for the caller to reject the whole row.
+ */
+export function parseLatencyField(raw: string): ParsedLatency {
+  if (raw === "") return { kind: "blank" };
+  const value = Number(raw);
+  if (Number.isNaN(value)) return { kind: "invalid" };
+  return { kind: "value", value };
+}
