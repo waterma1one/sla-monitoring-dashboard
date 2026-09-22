@@ -37,6 +37,22 @@ SELECT ?1,
 FROM json_each(?2)
 `;
 
+// Written in the same db.batch() as the rows above, so a chunk's rows, its
+// quarantine and the marker that makes a replay idempotent commit together.
+// rows_accepted is the number of rows this chunk actually added to `checks` -
+// INSERT OR IGNORE silently drops cross-chunk duplicates, so the count is only
+// knowable after the fact. ?4 is the upload's row count taken before the batch;
+// subtracting it from the count now gives what this chunk added, and whatever
+// the chunk kept but did not add was a duplicate.
+const INSERT_CHUNK_SQL = `
+INSERT INTO upload_chunks (upload_id, chunk_index, rows_total, rows_accepted,
+                           rows_corrected, rows_rejected, rows_duplicate)
+SELECT ?1, ?2, ?3,
+       (SELECT COUNT(*) FROM checks WHERE upload_id = ?1) - ?4,
+       ?5, ?6,
+       ?7 + ?8 - ((SELECT COUNT(*) FROM checks WHERE upload_id = ?1) - ?4)
+`;
+
 function chunkArray<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
@@ -169,40 +185,40 @@ export async function postChunk(
     env.DB.prepare(INSERT_REJECTED_SQL).bind(uploadId, JSON.stringify(group.map(encodeRejectedForInsert))),
   );
 
-  let persisted = 0;
-  if (insertStatements.length > 0) {
-    const insertResults = await env.DB.batch(insertStatements);
-    persisted = insertResults.reduce((sum, r) => sum + (r.meta.changes ?? 0), 0);
-  }
-  if (rejectStatements.length > 0) {
-    await env.DB.batch(rejectStatements);
-  }
+  const before = await env.DB.prepare(`SELECT COUNT(*) as n FROM checks WHERE upload_id = ?1`)
+    .bind(uploadId)
+    .first<{ n: number }>();
 
-  const dbDuplicates = kept.length - persisted;
-  const summary: ChunkSummary = {
-    rowsTotal: dataLines.length,
-    rowsAccepted: persisted,
-    rowsCorrected: correctedCount,
-    rowsRejected: rejected.length,
-    rowsDuplicate: inChunkDuplicates + dbDuplicates,
-  };
-
-  await env.DB.prepare(
-    `INSERT INTO upload_chunks (upload_id, chunk_index, rows_total, rows_accepted,
-                                rows_corrected, rows_rejected, rows_duplicate)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-  )
-    .bind(
+  // D1 runs a batch as one transaction, so this either lands whole or not at all.
+  // When the marker was a separate write after the rows, a failure in between left
+  // the rows in place with no marker, and the retry then re-inserted the quarantined
+  // rows and recorded the chunk as having accepted nothing.
+  await env.DB.batch([
+    ...insertStatements,
+    ...rejectStatements,
+    env.DB.prepare(INSERT_CHUNK_SQL).bind(
       uploadId,
       chunkIndex,
-      summary.rowsTotal,
-      summary.rowsAccepted,
-      summary.rowsCorrected,
-      summary.rowsRejected,
-      summary.rowsDuplicate,
-    )
-    .run();
+      dataLines.length,
+      before?.n ?? 0,
+      correctedCount,
+      rejected.length,
+      inChunkDuplicates,
+      kept.length,
+    ),
+  ]);
 
+  // Read the marker back rather than recomputing the counts here, so the response
+  // and the stored row can never disagree.
+  const summary = await env.DB.prepare(
+    `SELECT rows_total as rowsTotal, rows_accepted as rowsAccepted, rows_corrected as rowsCorrected,
+            rows_rejected as rowsRejected, rows_duplicate as rowsDuplicate
+     FROM upload_chunks WHERE upload_id = ?1 AND chunk_index = ?2`,
+  )
+    .bind(uploadId, chunkIndex)
+    .first<ChunkSummary>();
+
+  if (summary === null) throw new Error("chunk marker missing immediately after its own batch");
   return { ok: true, summary };
 }
 
