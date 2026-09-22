@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { convertLatencyUnit } from "../src/cleaning";
+import { convertLatencyUnit, parseTimestamp } from "../src/cleaning";
 
 describe("convertLatencyUnit (C1)", () => {
   it("converts seconds to milliseconds", () => {
@@ -8,5 +8,33 @@ describe("convertLatencyUnit (C1)", () => {
 
   it("leaves milliseconds unchanged", () => {
     expect(convertLatencyUnit(116, "ms")).toBe(116);
+  });
+});
+
+describe("parseTimestamp (C2)", () => {
+  it("parses a Z-suffixed UTC timestamp with no correction flag", () => {
+    expect(parseTimestamp("2025-04-16T19:00:00Z")).toEqual({
+      epochSeconds: Date.UTC(2025, 3, 16, 19, 0, 0) / 1000,
+      correction: null,
+    });
+  });
+
+  it("parses a 10-digit epoch-seconds timestamp, flagged ts_epoch", () => {
+    // F2: 1744349400 is documented as 2025-04-11T05:30:00Z.
+    expect(parseTimestamp("1744349400")).toEqual({
+      epochSeconds: 1744349400,
+      correction: "ts_epoch",
+    });
+  });
+
+  it("parses a +05:30 offset timestamp to its UTC instant, flagged ts_offset", () => {
+    expect(parseTimestamp("2025-06-01T12:00:00+05:30")).toEqual({
+      epochSeconds: Date.UTC(2025, 5, 1, 6, 30, 0) / 1000,
+      correction: "ts_offset",
+    });
+  });
+
+  it("returns null for an unparseable timestamp", () => {
+    expect(parseTimestamp("not-a-timestamp")).toBeNull();
   });
 });
