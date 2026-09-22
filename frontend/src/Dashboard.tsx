@@ -34,17 +34,22 @@ export default function Dashboard({ preferredUploadId }: { preferredUploadId: st
   useEffect(() => {
     if (uploads === null || uploads.length === 0) return;
     const preferred = preferredUploadId && uploads.find((u) => u.id === preferredUploadId);
-    const selected = preferred || uploads[0]!;
-    setUploadId(selected.id);
-    // Default the shared date filter to the upload's most recent day, so stats and
-    // logs render something on first load instead of an empty "pick a date" state.
-    // Set both states directly, skipping the debounce - this isn't a keystroke.
-    if (selected.dayLast) {
+    selectUpload((preferred || uploads[0]!).id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uploads]);
+
+  // Selecting an upload re-seeds the date filter to that upload's most recent day.
+  // Two uploads can cover completely different windows, so carrying the old date
+  // across would show "No rows in this range" and look like an empty upload.
+  // Both states are set directly, skipping the debounce - this isn't a keystroke.
+  function selectUpload(id: string) {
+    setUploadId(id);
+    const selected = uploads?.find((u) => u.id === id);
+    if (selected?.dayLast) {
       setFilter({ day: selected.dayLast });
       setDebouncedFilter({ day: selected.dayLast });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uploads]);
+  }
 
   if (error) {
     return <p className="text-sm text-red-600 dark:text-red-400">{error}</p>;
@@ -71,7 +76,7 @@ export default function Dashboard({ preferredUploadId }: { preferredUploadId: st
             <span className="text-slate-500 dark:text-slate-400">Upload</span>
             <select
               value={uploadId}
-              onChange={(e) => setUploadId(e.target.value)}
+              onChange={(e) => selectUpload(e.target.value)}
               className="rounded border border-slate-300 px-2 py-1 dark:border-slate-700 dark:bg-slate-900"
             >
               {uploads.map((u) => (
