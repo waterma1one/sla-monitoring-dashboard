@@ -644,6 +644,8 @@ and the stats collapse toggle. Screenshot saved to `docs/dashboard-live.png`.
 **Not yet exercised**: the resumable-retry path in `UploadScreen.tsx`
 (mid-upload chunk failure, finalize failure) - never triggered against a real
 dropped request, deployed or local. Carried forward as an open question.
+(Later: the Worker side is now covered over HTTP by
+`worker/test-worker/resume.test.ts`; the browser side still is not.)
 
 **Verified live at**: 2026-09-22, ~17:50 UTC.
 

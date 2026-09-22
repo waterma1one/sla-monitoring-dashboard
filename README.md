@@ -346,9 +346,14 @@ keeps the upload id and offers a retry that resumes from the failed chunk rather
 zero. The review showed one of its three paths was provably wrong — a finalize whose
 response was lost got a 409 forever, stranding the upload with its rows committed and its
 summary unreachable — which is exactly the kind of thing that only shows up when the path
-is exercised. That case is fixed by making finalize idempotent, but no upload has ever
-actually failed mid-flight. I would deliberately kill the network mid-chunk and watch it
-recover, rather than find out the first time it matters.
+is exercised. That case is fixed by making finalize idempotent. The Worker's half is now
+tested over HTTP (`worker/test-worker/resume.test.ts`): a chunk whose response was lost
+after the rows committed, a chunk that never arrived, a request aborted in flight, and a
+lost finalize, each resumed the way the browser does and compared against an uninterrupted
+upload. What is still untested is the browser's half — the Retry button in
+`UploadScreen.tsx` has never recovered from a real dropped connection. I would kill the
+network mid-upload in a real browser and watch it recover, rather than find out the first
+time it matters.
 
 **Move stats grouping into SQL, or precompute it.** `getStats` currently fetches every row
 in the range and groups it into check-points in JavaScript, because worst-status-wins and
