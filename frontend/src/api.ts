@@ -42,6 +42,13 @@ async function postText<T>(path: string, body: string): Promise<T> {
   return handleResponse<T>(res);
 }
 
+async function getJson<T>(path: string, params?: Record<string, string>): Promise<T> {
+  const url = new URL(`${WORKER_URL}${path}`);
+  for (const [key, value] of Object.entries(params ?? {})) url.searchParams.set(key, value);
+  const res = await fetch(url);
+  return handleResponse<T>(res);
+}
+
 export type ChunkSummary = {
   rowsTotal: number;
   rowsAccepted: number;
@@ -68,4 +75,83 @@ export function postChunk(uploadId: string, chunkIndex: number, chunkText: strin
 
 export function finalizeUpload(uploadId: string): Promise<UploadSummary> {
   return postJson(`/uploads/${uploadId}/finalize`, {});
+}
+
+// A single day, or a from/to range, never both - matches worker/src/queryParams.ts's
+// parseDateFilter, which rejects any other combination.
+export type DateFilter = { day: string } | { from: string; to: string };
+
+function dateFilterParams(filter: DateFilter): Record<string, string> {
+  return "day" in filter ? { day: filter.day } : { from: filter.from, to: filter.to };
+}
+
+export type ServiceStats = {
+  serviceId: string;
+  serviceName: string;
+  available: number;
+  unavailable: number;
+  availability: number | null;
+};
+
+export type StatsResult = {
+  from: string;
+  to: string;
+  checkPoints: { available: number; unavailable: number; excluded: number; expected: number };
+  availability: number | null;
+  coverage: number | null;
+  degradedRate: number | null;
+  latency: { mean: number | null; p95: number | null };
+  perService: ServiceStats[];
+};
+
+export function getStats(uploadId: string, filter: DateFilter): Promise<StatsResult> {
+  return getJson(`/uploads/${uploadId}/stats`, dateFilterParams(filter));
+}
+
+export type LogRow = {
+  id: number;
+  serviceId: string;
+  serviceName: string;
+  region: string;
+  agent: string;
+  ts: number;
+  day: string;
+  statusCode: number;
+  statusClass: string;
+  latencyMs: number | null;
+  degraded: boolean;
+  corrections: string[];
+};
+
+export type LogsResult = { rows: LogRow[]; nextCursor: string | null };
+
+export function getLogs(
+  uploadId: string,
+  filter: DateFilter,
+  opts?: { limit?: number; cursor?: string },
+): Promise<LogsResult> {
+  const params = dateFilterParams(filter);
+  if (opts?.limit !== undefined) params.limit = String(opts.limit);
+  if (opts?.cursor !== undefined) params.cursor = opts.cursor;
+  return getJson(`/uploads/${uploadId}/logs`, params);
+}
+
+// Distinct from UploadSummary above (that one is the finalize response shape).
+// This is worker/src/query.ts's listUploads row.
+export type UploadListItem = {
+  id: string;
+  filename: string;
+  uploadedAt: string;
+  status: "open" | "complete" | "failed";
+  dayFirst: string | null;
+  dayLast: string | null;
+  rowsTotal: number;
+  rowsAccepted: number;
+  rowsCorrected: number;
+  rowsRejected: number;
+  rowsDuplicate: number;
+};
+
+export function listUploads(): Promise<UploadListItem[]> {
+  return getJson("/uploads");
 }
