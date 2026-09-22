@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+body {
+  margin: 0;
+  color-scheme: light dark;
+  background: white;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #020617;
+  }
+}
