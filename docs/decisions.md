@@ -399,3 +399,58 @@ it is the same order of magnitude of work as a chunk in phase 3's ingest path,
 which is already sized to the Workers free-tier CPU budget - phase 7's full-file
 verification is the place this gets confirmed under real volume rather than
 assumed here.
+
+## 9. Upload UI (phase 5)
+
+### Chunking is sequential and client-driven, matching the phase 3 ingest contract
+
+The browser reads the whole file with `file.text()`, splits on the header line,
+groups data lines into 1,000-row chunks (`docs/decisions.md` section 4), and
+POSTs each chunk in order, waiting for one to succeed before sending the next.
+Sequential, not parallel: `postChunk` is idempotent per `(uploadId,
+chunkIndex)` by design, so a serial loop is the simplest thing that is also
+correct on retry, and the largest real file here is ~16 chunks - there is no
+throughput problem sequential POSTs need to solve.
+
+### File size cap: 20MB, client-side only
+
+Not derived from any protocol limit - the D1 2MB bound-string ceiling already
+governs the chunk size, not the whole file, and the largest CSV in this
+project is ~1.1MB. 20MB is a round number whose only job is to catch "wrong
+file picked" before the browser reads the whole thing into memory, checked
+against `file.size` before `file.text()` is ever called.
+
+### File type check is by extension, not MIME type
+
+`accept=".csv,text/csv"` on the input is a picker hint only; the actual
+guard checks `file.name` ends in `.csv`. Browsers report inconsistent or
+empty MIME types for CSV depending on OS and how the file arrived (a `.csv`
+downloaded from Slack, say, may have no `type` at all), so MIME is not a
+reliable signal here and extension is.
+
+### A failed chunk leaves the upload resumable, not restarted
+
+If a chunk POST fails partway through, the UI keeps the `uploadId` and the
+already-built chunk list in state and offers a "Retry" button that resumes
+from the failed chunk index, not chunk 0. This falls directly out of ingest's
+per-chunk-index idempotency (section 4/7): re-POSTing an already-recorded
+chunk index is safe but wasteful, so resuming from the failure point is the
+natural choice, not a new mechanism. The same path handles a failure in
+`finalize` after all chunks succeeded, by resuming with `startIndex` set past
+the last chunk so the retry re-runs only `finalize`.
+
+### Verified live against the real Worker
+
+`wrangler dev` (local D1, migrations applied via `wrangler d1 migrations
+apply sla-monitoring --local`) plus the Vite dev server, driven with
+`chrome-devtools`: uploaded `fixtures/dev_checks.csv` through the real UI,
+confirmed the accepted/corrected/rejected/duplicate summary and the
+corrections breakdown render correctly (199 accepted, 26 corrected, 0
+rejected, 1 duplicate on the fixture). Also confirmed the wrong-file-type
+error shows inline and disables Upload.
+
+One real bug caught and fixed here: the page had `dark:` text-color classes
+but no explicit background, so on a dark-mode browser the text rendered
+near-white on the default white page background - unreadable. Fixed by
+giving `<body>` and the root `<main>` explicit light/dark backgrounds instead
+of leaving the background at browser default.
