@@ -89,6 +89,7 @@ export type PostChunkOutcome =
 
 type LookupRow = {
   uploadStatus: string | null;
+  priorRows: number;
   rowsTotal: number | null;
   rowsAccepted: number | null;
   rowsCorrected: number | null;
@@ -105,7 +106,14 @@ export async function postChunk(
   const lookup = await env.DB.prepare(
     `SELECT u.status as uploadStatus, c.rows_total as rowsTotal, c.rows_accepted as rowsAccepted,
             c.rows_corrected as rowsCorrected, c.rows_rejected as rowsRejected,
-            c.rows_duplicate as rowsDuplicate
+            c.rows_duplicate as rowsDuplicate,
+            -- Data rows recorded by every earlier chunk of this upload. Added to the
+            -- within-chunk index so rejected_rows.line_no is the line number in the
+            -- source file, which is the only number an auditor can look up. Summed
+            -- from what was actually stored rather than assuming a chunk size, so the
+            -- Worker keeps no opinion about how the client slices the file.
+            (SELECT COALESCE(SUM(p.rows_total), 0) FROM upload_chunks p
+              WHERE p.upload_id = u.id AND p.chunk_index < ?2) as priorRows
      FROM uploads u
      LEFT JOIN upload_chunks c ON c.upload_id = u.id AND c.chunk_index = ?2
      WHERE u.id = ?1`,
@@ -138,7 +146,10 @@ export async function postChunk(
   // gets stored verbatim.
   const [, ...dataLines] = chunkText.split(/\r?\n/).filter((line) => line.length > 0);
 
-  const results = dataLines.map((line, i) => cleanRow(line.split(","), i + 2, line));
+  // +2 skips the header line and makes the count 1-based, matching what a text
+  // editor shows; priorRows carries it across chunk boundaries.
+  const firstLineNo = lookup.priorRows + 2;
+  const results = dataLines.map((line, i) => cleanRow(line.split(","), firstLineNo + i, line));
   const accepted = results
     .filter((r): r is { accepted: true; row: AcceptedRow } => r.accepted)
     .map((r) => r.row);

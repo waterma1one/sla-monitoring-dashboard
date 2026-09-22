@@ -100,6 +100,18 @@ describe("postChunk", () => {
     expect(rejected?.reason).toBe("non-numeric status");
   });
 
+  it("records a rejected row's line number in the source file, not in its chunk", async () => {
+    const { uploadId } = await openUpload(env, "checks.csv");
+    await postChunk(env, uploadId, 0, [HEADER, row(), row({ agent: "agent-2" })].join("\n"));
+    // Chunk 1's first data row is source line 4: header, then chunk 0's two rows.
+    await postChunk(env, uploadId, 1, [HEADER, row({ status_code: "not-a-number" })].join("\n"));
+
+    const rejected = await env.DB.prepare("SELECT line_no FROM rejected_rows WHERE upload_id = ?1")
+      .bind(uploadId)
+      .first<{ line_no: number }>();
+    expect(rejected?.line_no).toBe(4);
+  });
+
   it("counts an exact duplicate within one chunk and does not persist it twice", async () => {
     const { uploadId } = await openUpload(env, "checks.csv");
     const chunk = [HEADER, row(), row()].join("\n");
