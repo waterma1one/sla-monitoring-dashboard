@@ -7,7 +7,10 @@ import { cleanRow, dedupeAccepted } from "../src/cleaning";
 // module survives fixtures/dev_checks.csv (real rows, derived by
 // scripts/build_dev_fixture.py) rather than only the synthetic rows above.
 const fixturePath = fileURLToPath(new URL("../../fixtures/dev_checks.csv", import.meta.url));
-const lines = readFileSync(fixturePath, "utf8").trim().split("\n");
+// Split the same way ingest.ts does. The fixture, like all five source CSVs, is
+// CRLF; splitting on "\n" alone would leave a carriage return on region and this
+// file would then be testing cleaning against input production never sees.
+const lines = readFileSync(fixturePath, "utf8").trim().split(/\r?\n/);
 const [, ...dataLines] = lines;
 
 describe("cleaning module against the real dev fixture", () => {
@@ -28,6 +31,15 @@ describe("cleaning module against the real dev fixture", () => {
     for (const flag of ["unit_converted", "ts_epoch", "ts_offset", "status_invalid", "latency_negative", "latency_missing"]) {
       expect(allFlags.has(flag), `expected ${flag} to appear somewhere in the fixture`).toBe(true);
     }
+  });
+
+  // Regression guard for the CRLF bug: every earlier assertion here looked at a
+  // number, so a carriage return glued to the last column passed unnoticed.
+  it("leaves no stray whitespace on the last column", () => {
+    for (const r of accepted) {
+      expect(r.region).toBe(r.region.trim());
+    }
+    expect(new Set(accepted.map((r) => r.region))).toEqual(new Set(["ap-south-1"]));
   });
 
   it("flags at least one degraded check-point from the F11 brownout window", () => {

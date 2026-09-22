@@ -71,6 +71,19 @@ describe("postChunk", () => {
     expect(persisted?.n).toBe(2);
   });
 
+  it("strips the carriage return from a CRLF chunk", async () => {
+    const { uploadId } = await openUpload(env, "checks.csv");
+    // The source CSVs are CRLF, so this is the real shape of a chunk, not an edge case.
+    const chunk = [HEADER, row()].join("\r\n") + "\r\n";
+
+    await postChunk(env, uploadId, 0, chunk);
+
+    const stored = await env.DB.prepare("SELECT region FROM checks WHERE upload_id = ?1")
+      .bind(uploadId)
+      .first<{ region: string }>();
+    expect(stored?.region).toBe("ap-south-1");
+  });
+
   it("quarantines a structurally invalid row instead of persisting it", async () => {
     const { uploadId } = await openUpload(env, "checks.csv");
     const chunk = [HEADER, row({ status_code: "not-a-number" })].join("\n");

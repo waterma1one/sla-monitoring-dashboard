@@ -31,7 +31,9 @@ function validateFile(file: File): string | null {
 }
 
 function buildChunks(csvText: string): string[] {
-  const lines = csvText.split("\n").filter((line) => line.length > 0);
+  // \r?\n, not \n: the source CSVs are CRLF and a bare \n split leaves the carriage
+  // return on the last column of every row. The Worker splits the same way.
+  const lines = csvText.split(/\r?\n/).filter((line) => line.length > 0);
   const [header, ...dataLines] = lines;
   if (!header || dataLines.length === 0) throw new Error("File has a header but no data rows.");
   return chunkArray(dataLines, CHUNK_SIZE).map((rows) => [header, ...rows].join("\n"));

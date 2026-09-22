@@ -133,7 +133,10 @@ export async function postChunk(
 
   // The browser prepends the header line to every chunk (docs/decisions.md
   // section 4) so each chunk is self-describing; drop it here.
-  const [, ...dataLines] = chunkText.split("\n").filter((line) => line.length > 0);
+  // Split on \r?\n, not \n: all five source CSVs are CRLF, and splitting on \n
+  // alone leaves a carriage return glued to the last column (region), which then
+  // gets stored verbatim.
+  const [, ...dataLines] = chunkText.split(/\r?\n/).filter((line) => line.length > 0);
 
   const results = dataLines.map((line, i) => cleanRow(line.split(","), i + 2, line));
   const accepted = results
