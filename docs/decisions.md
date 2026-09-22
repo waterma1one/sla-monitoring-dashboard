@@ -586,3 +586,63 @@ already covered by `query.test.ts`'s "paginates via cursor" test, and the button
 correct appearance with a valid cursor after a real fetch confirms the wiring reaches
 it) and the upload-selector dropdown with genuinely distinct uploads (only same-named
 fixture re-uploads existed locally).
+
+## 12. Deploy and live verification (phase 7)
+
+### Frontend hosting migrated from classic Pages to Workers+assets
+
+`wrangler pages project create` no longer creates a classic Cloudflare Pages
+project for a new account - it delegates to Cloudflare's unified Workers+assets
+platform instead (`*.workers.dev`, not `*.pages.dev`), and does so silently: it
+also scaffolded `frontend/wrangler.jsonc`, added `@cloudflare/vite-plugin` and
+`wrangler` as dependencies, rewrote `vite.config.ts` to use the Cloudflare Vite
+plugin, and changed the `deploy`/`preview` scripts, all in one command. Accepted
+this rather than fighting the CLI: it's the same provider, same free tier, same
+CLI, and the same "one deploy story I can explain" reasoning section 1 gave for
+choosing Pages in the first place - Cloudflare just renamed and merged the
+mechanism. The project was renamed `sla-frontend` (the CLI's auto-generated
+name was `frontend`) to match `sla-worker`'s naming.
+
+Two stray projects from working out the correct deploy command (`sla-monitoring`,
+a broken build with `localhost:8787` baked in from the CLI's own untracked
+rebuild, and `frontend`, the auto-generated name before the rename) were deleted.
+
+### Live URLs
+
+- Worker: `https://sla-worker.blusinghaditya.workers.dev`
+- Frontend: `https://sla-frontend.blusinghaditya.workers.dev`
+- D1 database: `sla-monitoring` (id `edf9c3c5-76b0-454a-9855-9ef9d2732748`)
+
+### Full-volume upload verified live, against the real deployed Worker and D1
+
+Uploaded `monitoring_checks_30d_seed404.csv` (15,578 lines, the largest of the
+five files) through the live UI with `playwright`, not curl - 16 chunks, all
+succeeded. 15,552 rows persisted to remote D1 (confirmed with
+`wrangler d1 execute --remote`), the small gap from 15,577 data rows being
+exactly the kind of drop the cleaning rules in section 2 are expected to
+produce. Real span turned out to be 2025-04-06 to 2025-05-05, not the ~30 days
+counted forward from the last day that the filename suggested.
+
+A range query first tested against a guessed `to` date outside the real data
+(2025-06-04) returned numbers identical to the single-day view except for a
+dropped coverage percentage - looked like a bug at first glance. It wasn't:
+the guessed range only overlapped the real data on one day, so `day BETWEEN`
+correctly matched only that day, while `expected` (coverage's denominator)
+scaled correctly against the full guessed span. Re-run against the upload's
+real `dayFirst`/`dayLast` (2025-04-06 to 2025-05-05, from `GET /uploads`)
+returned 14,399 resolved check-points, 98.74% blended availability, credit
+owed, 100% coverage, and a distinct, plausible per-service breakdown - all
+consistent with real cleaned data at full volume. Confirms `day BETWEEN`
+range queries, the coverage/expected calculation, and per-service aggregation
+all hold up under the full 15,552-row file, not just the ~200-row dev fixture.
+
+Also confirmed live on the deployed site: persistence survives a hard page
+reload (identical stats after reloading with no client-side state, refetched
+from remote D1 - proves it's server-side, not in-memory), zero console errors,
+and the stats collapse toggle. Screenshot saved to `docs/dashboard-live.png`.
+
+**Not yet exercised**: the resumable-retry path in `UploadScreen.tsx`
+(mid-upload chunk failure, finalize failure) - never triggered against a real
+dropped request, deployed or local. Carried forward as an open question.
+
+**Verified live at**: 2026-09-22, ~17:50 UTC.
