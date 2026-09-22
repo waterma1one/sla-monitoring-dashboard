@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { convertLatencyUnit, parseTimestamp, deriveDay, classifyStatus } from "../src/cleaning";
+import {
+  convertLatencyUnit,
+  parseTimestamp,
+  deriveDay,
+  classifyStatus,
+  nullIfNegative,
+} from "../src/cleaning";
 
 describe("convertLatencyUnit (C1)", () => {
   it("converts seconds to milliseconds", () => {
@@ -71,5 +77,19 @@ describe("classifyStatus (C6)", () => {
 
   it("classifies an unseen 4xx as invalid, not as available under a not-5xx test", () => {
     expect(classifyStatus(404)).toBe("invalid");
+  });
+});
+
+describe("nullIfNegative (C7)", () => {
+  it("F9: nulls a negative latency rather than repairing it with abs()", () => {
+    expect(nullIfNegative(-296)).toBeNull();
+  });
+
+  it("leaves a non-negative latency unchanged", () => {
+    expect(nullIfNegative(269)).toBe(269);
+  });
+
+  it("leaves zero unchanged", () => {
+    expect(nullIfNegative(0)).toBe(0);
   });
 });

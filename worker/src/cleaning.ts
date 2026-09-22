@@ -61,3 +61,12 @@ export function classifyStatus(code: number): StatusClass {
   if (code >= 500 && code < 600) return "unavailable";
   return "invalid";
 }
+
+/**
+ * C7 (F9): a negative latency is physically impossible, so it is nulled rather
+ * than repaired with abs() - a plausible magnitude is not a licence to guess
+ * at intent. Status is untouched, so the row still counts toward availability.
+ */
+export function nullIfNegative(value: number): number | null {
+  return value < 0 ? null : value;
+}
