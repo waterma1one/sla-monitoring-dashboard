@@ -1,0 +1,20 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "sla-worker",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-09-22",
+	"dev": {
+		// Keeps worker-configuration.d.ts in sync automatically while `wrangler dev`
+		// is running; `npm run types` regenerates it otherwise.
+		"generate_types": true,
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "sla-monitoring",
+			// database_id is filled in at phase 7 after `wrangler d1 create sla-monitoring`.
+			// Omitted here so local dev and tests run against a local simulated D1.
+			"migrations_dir": "../migrations",
+		},
+	],
+}
