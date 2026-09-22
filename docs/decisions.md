@@ -454,3 +454,84 @@ but no explicit background, so on a dark-mode browser the text rendered
 near-white on the default white page background - unreadable. Fixed by
 giving `<body>` and the root `<main>` explicit light/dark backgrounds instead
 of leaving the background at browser default.
+
+## 10. Dashboard stats selection (phase 6, part 1)
+
+`StatsResult` computes ten numbers. The dashboard shows four. The assignment grades
+the choice of stats as a design decision, and showing everything computable is the
+absence of a choice, so each one below earns its place against a named reader.
+
+The two readers are an on-call engineer ("is something broken, which thing, how bad")
+and a billing analyst ("is a credit owed, and can I defend it in a dispute"). They
+want different numbers, and neither wants all ten.
+
+### The four
+
+**Availability, with the credit verdict attached.** The headline. Rendered as
+`99.94% - no credit owed` or `98.31% - credit owed (below 99.9%)`. The 99.9%
+threshold is already settled in section 1; printing the percentage without the
+verdict leaves the reader to make the comparison that the dashboard exists to make
+for them. Underneath it, the supporting count `N available / M unavailable`, so the
+figure is checkable rather than asserted - a credit dispute is exactly where a bare
+percentage is worth least.
+
+**Degraded rate.** Section 1 argues that a brownout must never fold into uptime,
+because that conflates two SLOs and changes the credit owed on grounds the contract
+never mentions. The consequence is that availability alone actively misleads: the 9d
+`svc-reports` incident reports 8.33% down while the service was serving 3-second
+responses through the middle of the window. Having deliberately kept the two apart in
+the SLA definition, the dashboard has to show both or the separation becomes a way of
+hiding the brownout rather than of measuring it honestly.
+
+**Latency p95.** The on-call number.
+
+**Coverage, as a data-integrity line rather than a fourth tile.** Section 1 records
+that this data contains zero missing check-points, so coverage must read exactly 100%
+and anything less is a bug in our own cleaning rather than a fact about the services.
+That makes it an alarm, not a KPI: it renders as a status line (`100% coverage, no
+gaps`) or as a visible warning, and it does not compete for attention with the three
+numbers a reader is actually here for.
+
+### What is not shown, and why
+
+- **Latency mean** is dropped. p95 is the SLO-relevant figure, and a mean displayed
+  beside it invites averaging away precisely the tail that the degraded flag exists to
+  surface.
+- **`expected`** is not shown on its own. It is only meaningful as coverage's
+  denominator, where it already appears.
+- **`excluded`** is shown only when greater than zero, as a footnote. It is the
+  explanation for why availability's denominator is smaller than the total check-point
+  count, which is invisible and confusing otherwise, but it is noise on a range where
+  nothing was excluded.
+
+### `null` is a display state, not a zero
+
+Section 8 makes `availability`, `coverage`, and `degradedRate` null on an empty
+denominator rather than zero. The distinction has to survive into the UI: rendering a
+null as `0%` would report a total outage on a range where there is simply no data.
+Each of the four gets an explicit no-data rendering, and no call site defaults a null
+to a number.
+
+### Blended availability is wrong for a credit decision, so stats gain a service dimension
+
+`getStats` aggregates across every service in the upload. For a credit decision that
+is not merely incomplete, it is incorrect: credits are owed per service, so a blended
+figure both hides one service's breach behind four healthy ones and implies a credit
+for the four that met their SLO. A dashboard whose headline number can answer "no
+credit owed" while a credit is owed is not defensible in the interview this project
+has to survive.
+
+So `getStats` is extended with a per-service breakdown, and the dashboard shows the
+per-service availability alongside the blended figure. This is Worker work that phase
+4 did not scope; it was raised as scope expansion and agreed before starting, rather
+than absorbed silently into the phase 6 build.
+
+### The dashboard needs `GET /uploads`
+
+Every existing route is scoped to an `uploadId`, and nothing lists them, so after a
+page refresh the dashboard has no way to discover which upload to display. A small
+route listing uploads newest-first is added, and the dashboard defaults to the most
+recent. The alternatives considered were holding the id in React state (a refresh
+empties the screen, which is a poor thing to discover during phase 7's live
+verification) and persisting it in `localStorage` (survives a refresh but shows a
+stale id whenever the D1 data is reset).
