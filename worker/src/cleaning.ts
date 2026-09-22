@@ -83,7 +83,10 @@ export type ParsedLatency =
  * for the caller to reject the whole row.
  */
 export function parseLatencyField(raw: string): ParsedLatency {
-  if (raw === "") return { kind: "blank" };
+  // Trim before the emptiness test, not after: Number(" ") is 0, so a
+  // whitespace-only field would otherwise be stored as a real 0ms measurement
+  // and drag the mean and p95 down instead of being flagged latency_missing.
+  if (raw.trim() === "") return { kind: "blank" };
   const value = Number(raw);
   if (Number.isNaN(value)) return { kind: "invalid" };
   return { kind: "value", value };

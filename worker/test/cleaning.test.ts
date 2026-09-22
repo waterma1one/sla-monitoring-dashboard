@@ -125,6 +125,13 @@ describe("parseLatencyField (C8, and the latency half of C11)", () => {
     expect(parseLatencyField("")).toEqual({ kind: "blank" });
   });
 
+  it("treats a whitespace-only field as blank, not as 0ms", () => {
+    // Number(" ") is 0, so without a trim this would be stored as a real
+    // measurement of zero and pull the mean and p95 down.
+    expect(parseLatencyField(" ")).toEqual({ kind: "blank" });
+    expect(parseLatencyField("\t")).toEqual({ kind: "blank" });
+  });
+
   it("C11: a non-numeric latency is invalid, for the caller to reject", () => {
     expect(parseLatencyField("not-a-number")).toEqual({ kind: "invalid" });
   });
