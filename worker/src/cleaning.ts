@@ -48,3 +48,16 @@ export function parseTimestamp(raw: string): ParsedTimestamp | null {
 export function deriveDay(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toISOString().slice(0, 10);
 }
+
+export type StatusClass = "available" | "unavailable" | "invalid";
+
+/**
+ * C6 (F8): an allowlist, not a `not 5xx` test - so an unseen 4xx classifies as
+ * invalid instead of available, and 999 (not a real HTTP status) lands in invalid
+ * rather than being guessed as either up or down.
+ */
+export function classifyStatus(code: number): StatusClass {
+  if (code >= 200 && code < 400) return "available";
+  if (code >= 500 && code < 600) return "unavailable";
+  return "invalid";
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { convertLatencyUnit, parseTimestamp, deriveDay } from "../src/cleaning";
+import { convertLatencyUnit, parseTimestamp, deriveDay, classifyStatus } from "../src/cleaning";
 
 describe("convertLatencyUnit (C1)", () => {
   it("converts seconds to milliseconds", () => {
@@ -49,5 +49,27 @@ describe("deriveDay (C3)", () => {
     // 2025-06-01T02:30:00+05:30 is 2025-05-31T21:00:00Z - a different calendar date.
     const parsed = parseTimestamp("2025-06-01T02:30:00+05:30")!;
     expect(deriveDay(parsed.epochSeconds)).toBe("2025-05-31");
+  });
+});
+
+describe("classifyStatus (C6)", () => {
+  it("classifies 2xx as available", () => {
+    expect(classifyStatus(200)).toBe("available");
+  });
+
+  it("classifies 3xx as available", () => {
+    expect(classifyStatus(302)).toBe("available");
+  });
+
+  it("classifies 5xx as unavailable", () => {
+    expect(classifyStatus(503)).toBe("unavailable");
+  });
+
+  it("F8: classifies 999 as invalid, not repaired to 200", () => {
+    expect(classifyStatus(999)).toBe("invalid");
+  });
+
+  it("classifies an unseen 4xx as invalid, not as available under a not-5xx test", () => {
+    expect(classifyStatus(404)).toBe("invalid");
   });
 });
