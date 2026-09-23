@@ -350,10 +350,14 @@ is exercised. That case is fixed by making finalize idempotent. The Worker's hal
 tested over HTTP (`worker/test-worker/resume.test.ts`): a chunk whose response was lost
 after the rows committed, a chunk that never arrived, a request aborted in flight, and a
 lost finalize, each resumed the way the browser does and compared against an uninterrupted
-upload. What is still untested is the browser's half — the Retry button in
-`UploadScreen.tsx` has never recovered from a real dropped connection. I would kill the
-network mid-upload in a real browser and watch it recover, rather than find out the first
-time it matters.
+upload. The browser's half has since been driven too: in Chromium against `wrangler dev`,
+with Playwright intercepting requests, I dropped the response to chunk 3 after the Worker
+had committed it, aborted chunk 4 before it left the browser, and dropped the finalize
+response after it committed. The Retry button recovered from all three in turn, and the
+resulting upload matched a clean upload of the same file row for row — same accepted,
+corrected and duplicate counts, same correction breakdown. What I have not done is pull a
+real network cable: the faults were injected at the browser's request layer, locally, not on
+the deployed site. That is the remaining gap, and I think a small one.
 
 **Move stats grouping into SQL, or precompute it.** `getStats` currently fetches every row
 in the range and groups it into check-points in JavaScript, because worst-status-wins and

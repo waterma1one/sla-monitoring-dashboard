@@ -646,6 +646,14 @@ and the stats collapse toggle. Screenshot saved to `docs/dashboard-live.png`.
 dropped request, deployed or local. Carried forward as an open question.
 (Later: the Worker side is now covered over HTTP by
 `worker/test-worker/resume.test.ts`; the browser side still is not.)
+(Later again, 2026-09-23: the browser side has been exercised locally. Chromium
+against `wrangler dev`, faults injected with Playwright request interception on
+`monitoring_checks_9d_seed101.csv` (5 chunks): chunk index 2 response dropped
+after commit, chunk index 3 aborted before sending, finalize response dropped
+after commit. Retry recovered from each; the upload matched a clean upload of
+the same file exactly - 4,672 total, 4,665 stored, 1,059 corrected, 7
+duplicates, identical corrections JSON, 5 chunk markers. Not a real network
+drop, and not against the deployed site.)
 
 **Verified live at**: 2026-09-22, ~17:50 UTC.
 
