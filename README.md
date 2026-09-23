@@ -10,7 +10,7 @@ deciding what "available" means precisely enough to defend a billing credit.
 
 - Dashboard and upload UI: https://sla-frontend.blusinghaditya.workers.dev
 - API (the stateless function): https://sla-worker.blusinghaditya.workers.dev
-- Last verified live: **2026-09-23, ~10:40 UTC** — after redeploying the fixed Worker, the
+- Last verified live: **2026-09-23, ~10:40 UTC**. After redeploying the fixed Worker, the
   full 15,578-line CSV uploaded again through the deployed UI in a real browser, then
   queried back from a fresh browser context with no client state.
 
@@ -37,7 +37,7 @@ deploy story short enough that I can explain all of it.
 
 The frontend was originally meant to be classic Cloudflare Pages. Partway through
 deployment I found that `wrangler pages project create` no longer creates a classic Pages
-project on a new account — it delegates to Cloudflare's unified Workers-plus-assets
+project on a new account. It delegates to Cloudflare's unified Workers-plus-assets
 platform, so the site lands on `*.workers.dev` rather than `*.pages.dev`, and the command
 rewrites your Vite config and npm scripts on the way through. I accepted that rather than
 fighting the deprecation: it is the same provider, the same free tier, the same CLI, and
@@ -47,8 +47,8 @@ Cloudflare merged the two mechanisms and renamed the result.
 ### How the data moves
 
 The browser reads the CSV, splits it on line boundaries into chunks of 1,000 data rows,
-and POSTs each chunk to the Worker in order. It does no parsing, validation, or cleaning —
-it splits bytes at newlines and prepends the header to each chunk so every chunk is
+and POSTs each chunk to the Worker in order. It does no parsing, validation, or cleaning;
+it just splits bytes at newlines and prepends the header to each chunk so every chunk is
 self-describing. All of the cleaning runs in the deployed Worker, which is what the
 assignment asks for.
 
@@ -58,7 +58,7 @@ chunk is a separate invocation with a fresh budget, so the largest file becomes 
 requests against a 100,000-request daily allowance. It also means the progress bar reports
 real progress instead of animating.
 
-Ingest is three endpoints — open an upload, post chunk *n*, finalize — and each is
+Ingest is three endpoints (open an upload, post chunk *n*, finalize), and each is
 stateless, with all state in D1:
 
 ```
@@ -71,12 +71,12 @@ GET  /uploads/:id/logs?from=&to=     paginated check records
 ```
 
 Inserts go through `json_each`. D1 caps bound parameters at 100 per statement, so an
-11-column multi-row `VALUES` insert fits 9 rows — about 1,730 statements for the largest
+11-column multi-row `VALUES` insert fits 9 rows, which means about 1,730 statements for the largest
 file, far past the 50-query ceiling. Instead each insert is one statement with the rows
 carried as a single JSON string parameter, whose ceiling is the 2 MB maximum bound string
 rather than 100 parameter slots. I settled on 500 rows per statement: a row serialises to
 roughly 120 bytes, so that payload is about 60 KB, three percent of the limit. A 1,000-row
-chunk is therefore two insert statements plus a counter insert — three queries against a
+chunk is therefore two insert statements plus a counter insert: three queries against a
 budget of fifty, with room to raise the chunk size later without redesigning anything.
 
 D1's `batch()` commits statements sequentially rather than giving all-or-nothing rollback,
@@ -89,7 +89,7 @@ than silently short.
 ## Data findings
 
 The data is five independent simulations of the same five services at one check every 15
-minutes, spanning 9 to 30 days. I never opened a CSV whole — every figure below comes from
+minutes, spanning 9 to 30 days. I never opened a CSV whole. Every figure below comes from
 aggregation scripts that read row by row and print only counts, committed in
 `docs/profiling/` so each number can be re-derived. The full write-up, with examples and
 row counts per file, is in `docs/data-findings.md`; the handling rules are in
@@ -109,13 +109,13 @@ row counts per file, is in `docs/data-findings.md`; the handling rules are in
 | F10 | Empty `latency` on otherwise valid rows | ~1.2% of rows | Accepted with a null latency. The row still counts toward availability and not toward latency. |
 | F11 | Incidents include latency brownouts that return `200` | 6–20 rows per file, clustered on one service-day | Availability stays status-only; each available check-point also carries a `degraded` flag at latency > 1000 ms, reported as its own statistic. |
 | F12 | The five files collide with each other on `(service_id, timestamp)` and disagree | 132–216 disagreements per overlapping pair | Rows are scoped to an `upload_id` and the dashboard filters by upload, so two files can never merge into one availability figure. |
-| F13 | `region` is a single value everywhere; `service_name` is functionally dependent on `service_id` | all rows | Cosmetic. Both stored as-is — denormalising five low-cardinality values across 15k rows is cheaper than a join on every query. |
+| F13 | `region` is a single value everywhere; `service_name` is functionally dependent on `service_id` | all rows | Cosmetic. Both stored as-is, since denormalising five low-cardinality values across 15k rows is cheaper than a join on every query. |
 
 Three of these deserve more than a table row.
 
 **Units (F1)** matter more than they look. Treating the latency column as one unit
-understates mean latency by about 30% — 254–257 ms naive against 363–367 ms converted,
-consistent across all five files — and it understates it, which is the direction that makes the
+understates mean latency by about 30% (254–257 ms naive against 363–367 ms converted,
+consistent across all five files), and it understates it, which is the direction that makes the
 service look better than it is. Every latency figure on the dashboard would have been
 quietly wrong.
 
@@ -138,7 +138,7 @@ rate as its own number.
 ### Things I checked that turned out to be fine
 
 I also went looking for the usual problems and did not find them. There are **no**
-missing check-points — every service has all 96 daily points for every day in every file,
+missing check-points: every service has all 96 daily points for every day in every file,
 so this dataset has no gap-versus-downtime problem (though cleaning can create one, which
 is why coverage is on the dashboard). There are no malformed or ragged rows, no naming
 drift, no empty fields outside `latency`, no off-grid timestamps, no 4xx codes anywhere,
@@ -151,7 +151,7 @@ The spec is ambiguous in exactly the places that decide the number, so these are
 choices I made and why. All of them are argued at more length in `docs/decisions.md`.
 
 **A check-point is the unit, not a row.** A check-point is one `(service, instant)` pair on
-the 15-minute grid — the thing that was supposed to be measured. Availability is computed
+the 15-minute grid, meaning the thing that was supposed to be measured. Availability is computed
 over check-points, so the denominator depends on elapsed time rather than on how many
 agents happened to be watching. Counting rows instead would make the SLA figure a function
 of observer coverage, and the bias does not even have a predictable sign: in one file
@@ -159,7 +159,7 @@ row-wise availability is *lower* than per-check-point, in the other four it is h
 
 **"Available" is an allowlist.** 2xx and 3xx are available, 5xx is unavailable, anything
 else is `invalid`. I deliberately did not write this as "not 5xx", which gives the right
-answer for `999` and the wrong answer for a `404` — this column should be correct for
+answer for `999` and the wrong answer for a `404`. This column should be correct for
 status codes the dataset does not happen to contain.
 
 **`999` is unknown, not repaired.** All five occurrences carry healthy latency, and in one
@@ -190,8 +190,8 @@ incidents are pure 5xx with no latency excursion.
 
 **Everything is UTC, and the dashboard says so.** UTC matches the majority timestamp
 format and the incident log's own description of its windows, and it has no DST edge
-cases. IST was tempting — the offsets and the `ap-south-1` tag both suggest an operator in
-India — but it shifts every day boundary by 5h30m and re-buckets exactly the 73 rows from
+cases. IST was tempting, since the offsets and the `ap-south-1` tag both suggest an operator in
+India, but it shifts every day boundary by 5h30m and re-buckets exactly the 73 rows from
 F3. The label is not decoration; those rows are precisely where a reader assuming local
 time reads the wrong day.
 
@@ -210,7 +210,7 @@ arbitrarily. The cost is a dataset selector on the dashboard, which I took knowi
 
 **One correction I made by extension rather than by instruction.** Negative latency (F9)
 becomes null rather than `abs()`. The magnitudes are plausible, which makes `abs()`
-tempting, but it repairs a corrupt field by guessing at intent — the same thing I declined
+tempting, but it repairs a corrupt field by guessing at intent, which is the same thing I declined
 to do for `999`. It affects one row per file, so it cannot move any published figure.
 
 ### Which stats to show
@@ -220,14 +220,14 @@ computable is the absence of a decision. I wrote the list against two readers: a
 engineer asking "is something broken, which thing, how bad", and a billing analyst asking
 "is a credit owed, and can I defend it in a dispute".
 
-- **Availability, with the credit verdict attached** — rendered as `98.74% — credit owed
+- **Availability, with the credit verdict attached.** Rendered as `98.74% credit owed
   (below 99.9%)`, not as a bare percentage, because making that comparison is the reason
   the dashboard exists. The supporting `N available / M unavailable` counts sit underneath
   it, since a credit dispute is exactly where an unchecked percentage is worth least.
-- **Degraded rate** — having argued that a brownout must never fold into uptime, I have to
+- **Degraded rate.** Having argued that a brownout must never fold into uptime, I have to
   show both numbers, or the separation becomes a way of hiding the brownout rather than of
   measuring it.
-- **Latency p95** — the on-call number. Nearest-rank, computed in the Worker after one
+- **Latency p95.** The on-call number. Nearest-rank, computed in the Worker after one
   read, since SQLite has no percentile function.
 - **Coverage**, as a one-line data-integrity check rather than a fourth tile.
 
@@ -241,12 +241,12 @@ decision on its own, because credits are owed per service. A blended number hide
 service's breach behind four healthy ones and implies a credit for the four that met their
 SLO. So the stats section also breaks availability down per service, with any service
 below 99.9% flagged. On the live dataset the blend reads 98.74% and the per-service spread
-runs from 97.15% for `reports-api` to 99.72% for `notify-worker` — every service is owed a
+runs from 97.15% for `reports-api` to 99.72% for `notify-worker`, so every service is owed a
 credit here, but the blended figure alone would not tell you that `reports-api` is three
 times worse than the number suggests, or which service to look at first.
 
-Availability, coverage, and degraded rate can each be `null` — meaning "no resolvable
-check-points in this range" — and that is rendered as a no-data state rather than as `0%`.
+Availability, coverage, and degraded rate can each be `null`, meaning "no resolvable
+check-points in this range", and that is rendered as a no-data state rather than as `0%`.
 A zero would read as a confirmed total outage, which is a different fact.
 
 ## Running it locally
@@ -268,7 +268,7 @@ npm run dev
 ```
 
 Open the Vite URL, upload `fixtures/dev_checks.csv` (a 200-row fixture hand-built to
-contain every issue class above — `fixtures/dev_checks.md` says which row is which), and
+contain every issue class above; `fixtures/dev_checks.md` says which row is which), and
 the dashboard tab will preselect it.
 
 Tests are in the Worker and cover the cleaning rules, check-point resolution, query
@@ -289,7 +289,7 @@ npx wrangler d1 migrations apply sla-monitoring --remote
 # Worker
 cd worker && npm run deploy
 
-# Frontend — the Worker URL is baked in at build time, so it must be set
+# Frontend: the Worker URL is baked in at build time, so it must be set
 cd frontend
 VITE_WORKER_URL=https://sla-worker.blusinghaditya.workers.dev npm run deploy
 ```
@@ -305,7 +305,7 @@ grep -o "sla-worker.blusinghaditya.workers.dev" frontend/dist/assets/*.js
 ## How this was verified live
 
 I did the live check against the deployed Worker and the remote database, not `wrangler dev`.
-I uploaded `monitoring_checks_30d_seed404.csv` — 15,578 lines, the largest of the five —
+I uploaded `monitoring_checks_30d_seed404.csv` (15,578 lines, the largest of the five)
 through the real UI in a real browser driven by Playwright. All 16 chunks succeeded.
 15,552 rows persisted, which reconciles exactly: 15,577 data rows minus 25 exact
 duplicates, with 3,547 rows carrying at least one correction and nothing rejected.
@@ -318,7 +318,7 @@ than assumed from the filename) return 14,399 resolved check-points, 98.74% blen
 availability with a credit owed, 100% coverage, and a plausible per-service spread.
 
 One false alarm fooled me for a minute: a range query with a guessed end date outside the real data returned figures
-identical to the single-day view but with lower coverage. That is correct behaviour —
+identical to the single-day view but with lower coverage. That is correct behaviour:
 `day BETWEEN` matched only the one day that actually overlapped, while coverage's
 denominator scaled against the full requested span. My guess was wrong, not the query.
 
@@ -342,7 +342,7 @@ appears if someone picks it from the upload selector.
 **Write tests that look at strings, not only at numbers.** A review pass over the finished
 code found that every stored `region` was `"ap-south-1\r"`: the source CSVs are CRLF and
 both the Worker and the browser split chunks on `"\n"`, so a carriage return stayed on the
-last column. It changed no SLA figure, which is why nothing caught it — but it survived 93
+last column. It changed no SLA figure, which is why nothing caught it, but it survived 93
 tests, a full-volume upload and a live sign-off, because every assertion I had written
 looked at a count or a latency. That review found nine defects in all; they are fixed, and
 what each one changed is in `docs/decisions.md` section 13. The lesson I would carry
@@ -351,9 +351,9 @@ the data rots underneath it.
 
 **Test the resumable-retry path for real.** If a chunk POST fails partway through, the UI
 keeps the upload id and offers a retry that resumes from the failed chunk rather than from
-zero. The review showed one of its three paths was provably wrong — a finalize whose
+zero. The review showed one of its three paths was provably wrong. A finalize whose
 response was lost got a 409 forever, stranding the upload with its rows committed and its
-summary unreachable — which is exactly the kind of thing that only shows up when the path
+summary unreachable. That is exactly the kind of thing that only shows up when the path
 is exercised. That case is fixed by making finalize idempotent. The Worker's half is now
 tested over HTTP (`worker/test-worker/resume.test.ts`): a chunk whose response was lost
 after the rows committed, a chunk that never arrived, a request aborted in flight, and a
@@ -362,7 +362,7 @@ upload. The browser's half has since been driven too: in Chromium against `wrang
 with Playwright intercepting requests, I dropped the response to chunk 3 after the Worker
 had committed it, aborted chunk 4 before it left the browser, and dropped the finalize
 response after it committed. The Retry button recovered from all three in turn, and the
-resulting upload matched a clean upload of the same file row for row — same accepted,
+resulting upload matched a clean upload of the same file row for row: same accepted,
 corrected and duplicate counts, same correction breakdown. What I have not done is pull a
 real network cable: the faults were injected at the browser's request layer, locally, not on
 the deployed site. That is the remaining gap, and I think a small one.
@@ -386,16 +386,16 @@ what the assignment asks for, but an on-call engineer would immediately want to 
 one service, or to failures only. The index for a service filter already exists.
 
 **Revisit the degradation threshold with someone who owns the SLO.** 1000 ms is defensible
-from this data — it is the smallest round number above the observed p95 and it catches
-every brownout — but it is a number I derived from the sample rather than one the contract
+from this data, since it is the smallest round number above the observed p95 and it catches
+every brownout, but it is a number I derived from the sample rather than one the contract
 states. In a real setting that threshold is a negotiated figure, not an inferred one.
 
 ## How this was built
 
 I used AI tools throughout, which the assignment allows. I used them for profiling the
-data and laying out options, but every judgment call that moves the SLA number — what
+data and laying out options, but I made every judgment call that moves the SLA number myself: what
 "available" means, what happens to `999`, which timezone defines a day, which four stats
-to show — was one I made and can argue for, and each is written down in
-`docs/decisions.md` at the point it was taken rather than reconstructed afterwards. That
+to show. I can argue for each one, and each is written down in
+`docs/decisions.md` at the point I made it, not reconstructed afterwards. That
 file and `docs/data-findings.md` are the working record this README is assembled from, and
 they are the place to look if you want the evidence behind any line above.
