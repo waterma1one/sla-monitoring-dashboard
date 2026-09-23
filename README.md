@@ -28,7 +28,7 @@ bottom and take about two minutes.
 | Stateless processing | Cloudflare Worker, TypeScript | `sla-worker.blusinghaditya.workers.dev` |
 | Database | Cloudflare D1 (SQLite) | `sla-monitoring` |
 
-I picked Cloudflare for three reasons. The assignment requires the function to genuinely
+I picked Cloudflare for three reasons. The assignment requires the function to actually
 run in the cloud rather than in a container standing in for one, and `wrangler deploy`
 puts a real Worker at a real public URL in one command. The free tier needs no credit
 card, so there is no way for this to quietly stop being live before someone reviews it.
@@ -137,7 +137,7 @@ rate as its own number.
 
 ### Things I checked that turned out to be fine
 
-Worth recording, because these are the first questions a reviewer asks. There are **no**
+I also went looking for the usual problems and did not find them. There are **no**
 missing check-points — every service has all 96 daily points for every day in every file,
 so this dataset has no gap-versus-downtime problem (though cleaning can create one, which
 is why coverage is on the dashboard). There are no malformed or ragged rows, no naming
@@ -296,7 +296,7 @@ VITE_WORKER_URL=https://sla-worker.blusinghaditya.workers.dev npm run deploy
 
 That environment variable is the one real trap. Vite inlines it at build time, so a build
 without it ships a bundle pointing at `localhost:8787` and the deployed site fails with no
-obvious cause. It is worth confirming after a deploy:
+obvious cause. I check it after every deploy:
 
 ```bash
 grep -o "sla-worker.blusinghaditya.workers.dev" frontend/dist/assets/*.js
@@ -304,21 +304,20 @@ grep -o "sla-worker.blusinghaditya.workers.dev" frontend/dist/assets/*.js
 
 ## How this was verified live
 
-Phase 7 was done against the deployed Worker and the remote database, not `wrangler dev`.
+I did the live check against the deployed Worker and the remote database, not `wrangler dev`.
 I uploaded `monitoring_checks_30d_seed404.csv` — 15,578 lines, the largest of the five —
 through the real UI in a real browser driven by Playwright. All 16 chunks succeeded.
 15,552 rows persisted, which reconciles exactly: 15,577 data rows minus 25 exact
 duplicates, with 3,547 rows carrying at least one correction and nothing rejected.
 
-I then confirmed the data was genuinely server-side by hard-reloading the page with no
+I then confirmed the data was really server-side by hard-reloading the page with no
 client state and getting identical figures back from D1, ran both filter shapes the
 assignment requires, and checked the collapse toggle and the console. Range queries over
 the upload's real span (2025-04-06 to 2025-05-05, discovered from `GET /uploads` rather
 than assumed from the filename) return 14,399 resolved check-points, 98.74% blended
 availability with a credit owed, 100% coverage, and a plausible per-service spread.
 
-One false alarm along the way is worth recording, because it looked like a bug for a
-minute: a range query with a guessed end date outside the real data returned figures
+One false alarm fooled me for a minute: a range query with a guessed end date outside the real data returned figures
 identical to the single-day view but with lower coverage. That is correct behaviour —
 `day BETWEEN` matched only the one day that actually overlapped, while coverage's
 denominator scaled against the full requested span. My guess was wrong, not the query.
@@ -334,7 +333,7 @@ got 2,376 available and 24 unavailable check-points, matching `GET /stats` for t
 range directly, and confirmed an inverted range is refused with a 400. The screenshot at
 the top of this README is from that run.
 
-The phase 7 upload is still in the database, carriage returns and all. I left it rather
+The first upload is still in the database, carriage returns and all. I left it rather
 than delete production data; the dashboard defaults to the newest upload, so it only
 appears if someone picks it from the upload selector.
 
@@ -393,11 +392,10 @@ states. In a real setting that threshold is a negotiated figure, not an inferred
 
 ## How this was built
 
-I used AI assistance throughout, which the assignment permits. The working method was
-deliberate about where that help was allowed to make decisions: profiling the data and
-proposing options was assisted, but every judgment call that moves the SLA number — what
+I used AI tools throughout, which the assignment allows. I used them for profiling the
+data and laying out options, but every judgment call that moves the SLA number — what
 "available" means, what happens to `999`, which timezone defines a day, which four stats
 to show — was one I made and can argue for, and each is written down in
 `docs/decisions.md` at the point it was taken rather than reconstructed afterwards. That
 file and `docs/data-findings.md` are the working record this README is assembled from, and
-they are worth reading if you want the evidence behind any line above.
+they are the place to look if you want the evidence behind any line above.
