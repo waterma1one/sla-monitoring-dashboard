@@ -738,3 +738,14 @@ headers after the router refactor.
 **Not yet redeployed.** These fixes are local only. The live Worker still runs
 the pre-fix code and the remote database still holds the phase 7 upload with
 carriage returns on all 15,552 rows.
+
+**Redeployed 2026-09-23.** Worker version `884d117f`, frontend version
+`0ad962ff` (built with `VITE_WORKER_URL` set; bundle checked for the live URL and
+for no `localhost:8787`). `monitoring_checks_30d_seed404.csv` re-uploaded through
+the live UI as upload `abbca45d-bc9d-4eb3-b289-2f191ccccf8a`: 15,577 data rows,
+15,552 stored, 3,547 corrected, 25 duplicates, 0 rejected - identical to phase 7
+- and 0 rows with a carriage return on `region`. Checked from a fresh browser
+context: stats collapse and re-expand, range 2025-05-01..2025-05-05 shows 2,376
+available / 24 unavailable matching `GET /stats` directly, inverted range
+returns 400, no console errors. The phase 7 upload (`7c838f51`) was left in
+place with its carriage returns; deleting production rows was not asked for.

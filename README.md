@@ -10,9 +10,9 @@ deciding what "available" means precisely enough to defend a billing credit.
 
 - Dashboard and upload UI: https://sla-frontend.blusinghaditya.workers.dev
 - API (the stateless function): https://sla-worker.blusinghaditya.workers.dev
-- Last verified live: **2026-09-22, ~17:50 UTC** — full 15,578-line CSV uploaded through
-  the deployed UI in a real browser, queried back after a hard reload. Re-checked at
-  publish time: both URLs return 200 and the upload is still in the remote database.
+- Last verified live: **2026-09-23, ~10:40 UTC** — after redeploying the fixed Worker, the
+  full 15,578-line CSV uploaded again through the deployed UI in a real browser, then
+  queried back from a fresh browser context with no client state.
 
 ![The live dashboard with the 30-day dataset loaded](docs/dashboard-live.png)
 
@@ -323,11 +323,20 @@ identical to the single-day view but with lower coverage. That is correct behavi
 `day BETWEEN` matched only the one day that actually overlapped, while coverage's
 denominator scaled against the full requested span. My guess was wrong, not the query.
 
-The fixes described in `docs/decisions.md` section 13 came after that verification and
-have not been deployed. They are verified locally — 97 tests, and an end-to-end run
-against `wrangler dev` with local D1 — so the live site still runs the pre-fix Worker,
-and the rows already in the remote database still carry the carriage return on `region`.
-Redeploying and re-uploading the file clears both.
+The fixes described in `docs/decisions.md` section 13 came after that verification, so I
+redeployed both the Worker and the frontend and did it again on 2026-09-23. The same file
+went through the live UI in about eleven seconds and reconciled to the same figures as
+before: 15,552 rows stored, 3,547 corrected, 25 duplicates, nothing rejected. This time I
+also checked the column that had been wrong: none of the new upload's rows has a carriage
+return on `region`, where every row of the first upload did. From a fresh browser context
+I collapsed and re-expanded the stats, switched to a range of 2025-05-01 to 2025-05-05 and
+got 2,376 available and 24 unavailable check-points, matching `GET /stats` for the same
+range directly, and confirmed an inverted range is refused with a 400. The screenshot at
+the top of this README is from that run.
+
+The phase 7 upload is still in the database, carriage returns and all. I left it rather
+than delete production data; the dashboard defaults to the newest upload, so it only
+appears if someone picks it from the upload selector.
 
 ## What I would do differently with more time
 
