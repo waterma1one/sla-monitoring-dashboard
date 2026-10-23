@@ -1,7 +1,7 @@
 import type { DateFilter } from "./api";
 
 // One shared control for both dashboard sections rather than two independent ones -
-// the assignment only requires the logs view to be filterable, but getStats is
+// only the logs view strictly needs a filter, but getStats is
 // range-scoped too (docs/decisions.md section 1: "the dashboard computes over the
 // selected date range"). Two unsynced date pickers on one screen would leave a
 // reader unable to tell whether the stats above match the logs below.

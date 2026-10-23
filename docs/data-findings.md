@@ -341,9 +341,8 @@ only as schema design input.
 
 ## Checked and *not* present
 
-The brief listed classes to check, not classes that are necessarily there. These were
-checked and found absent, which is itself worth recording because some of them are the
-obvious things a reviewer will ask about:
+These classes were checked and found absent, which is worth recording because some of
+them are the obvious things to ask about:
 
 - **Missing check-points.** Zero. Every service has all 96 daily check-points for every
   day of its range, in every file. The seeded incidents manifest as error codes and

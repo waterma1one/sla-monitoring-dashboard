@@ -8,30 +8,23 @@ deciding what "available" means precisely enough to defend a billing credit.
 
 ## Live
 
-- Dashboard and upload UI: https://sla-frontend.blusinghaditya.workers.dev
-- API (the stateless function): https://sla-worker.blusinghaditya.workers.dev
-- Last verified live: **2026-09-23, ~10:40 UTC**. After redeploying the fixed Worker, the
-  full 15,578-line CSV uploaded again through the deployed UI in a real browser, then
-  queried back from a fresh browser context with no client state.
+Not currently deployed. The screenshot below is from the last live run (2026-09-23), when
+the full 15,578-line CSV uploaded through the deployed UI and was queried back from a fresh
+browser context with no client state. Redeploy instructions are at the bottom.
 
-![The live dashboard with the 30-day dataset loaded](docs/dashboard-live.png)
-
-Everything is on Cloudflare's free tier with no card on file, so nothing can roll off a
-paid tier and take the link down. If it is ever down, the redeploy instructions are at the
-bottom and take about two minutes.
+![The dashboard with the 30-day dataset loaded](docs/dashboard-live.png)
 
 ## Architecture
 
 | Piece | What it is | Where it runs |
 |---|---|---|
 | Upload UI + dashboard | React 19 + Vite + Tailwind v4, static build | Cloudflare Workers static assets, `sla-frontend` |
-| Stateless processing | Cloudflare Worker, TypeScript | `sla-worker.blusinghaditya.workers.dev` |
+| Stateless processing | Cloudflare Worker, TypeScript | `sla-worker` (a `*.workers.dev` URL) |
 | Database | Cloudflare D1 (SQLite) | `sla-monitoring` |
 
-I picked Cloudflare for three reasons. The assignment requires the function to actually
-run in the cloud rather than in a container standing in for one, and `wrangler deploy`
-puts a real Worker at a real public URL in one command. The free tier needs no credit
-card, so there is no way for this to quietly stop being live before someone reviews it.
+I picked Cloudflare for three reasons. I wanted the processing to run as a real
+cloud function rather than a container standing in for one, and `wrangler deploy`
+puts a Worker at a public URL in one command. The free tier needs no credit card.
 And Workers, D1, and the static hosting are one provider behind one CLI, which keeps the
 deploy story short enough that I can explain all of it.
 
@@ -49,8 +42,7 @@ Cloudflare merged the two mechanisms and renamed the result.
 The browser reads the CSV, splits it on line boundaries into chunks of 1,000 data rows,
 and POSTs each chunk to the Worker in order. It does no parsing, validation, or cleaning;
 it just splits bytes at newlines and prepends the header to each chunk so every chunk is
-self-describing. All of the cleaning runs in the deployed Worker, which is what the
-assignment asks for.
+self-describing. All of the cleaning runs in the deployed Worker.
 
 Chunking is not decoration. The Workers free tier allows 10 ms of CPU per invocation and
 D1 allows 50 queries per invocation, and parsing 15,577 rows does not fit in 10 ms. Each
@@ -275,7 +267,7 @@ Tests are in the Worker and cover the cleaning rules, check-point resolution, qu
 parameter validation, and the ingest and query endpoints against a real local D1:
 
 ```bash
-cd worker && npm test     # 93 tests, 6 files
+cd worker && npm test     # 101 tests, 7 files
 ```
 
 ## Redeploying
@@ -291,7 +283,7 @@ cd worker && npm run deploy
 
 # Frontend: the Worker URL is baked in at build time, so it must be set
 cd frontend
-VITE_WORKER_URL=https://sla-worker.blusinghaditya.workers.dev npm run deploy
+VITE_WORKER_URL=https://sla-worker.<your-subdomain>.workers.dev npm run deploy
 ```
 
 That environment variable is the one real trap. Vite inlines it at build time, so a build
@@ -299,7 +291,7 @@ without it ships a bundle pointing at `localhost:8787` and the deployed site fai
 obvious cause. I check it after every deploy:
 
 ```bash
-grep -o "sla-worker.blusinghaditya.workers.dev" frontend/dist/assets/*.js
+grep -o "sla-worker.<your-subdomain>.workers.dev" frontend/dist/assets/*.js
 ```
 
 ## How this was verified live
@@ -311,8 +303,7 @@ through the real UI in a real browser driven by Playwright. All 16 chunks succee
 duplicates, with 3,547 rows carrying at least one correction and nothing rejected.
 
 I then confirmed the data was really server-side by hard-reloading the page with no
-client state and getting identical figures back from D1, ran both filter shapes the
-assignment requires, and checked the collapse toggle and the console. Range queries over
+client state and getting identical figures back from D1, ran both filter shapes (single day and range), and checked the collapse toggle and the console. Range queries over
 the upload's real span (2025-04-06 to 2025-05-05, discovered from `GET /uploads` rather
 than assumed from the filename) return 14,399 resolved check-points, 98.74% blended
 availability with a credit owed, 100% coverage, and a plausible per-service spread.
@@ -381,8 +372,7 @@ use a `RETURNING` clause because I could not confirm D1 supports it on this inse
 and did not want to assume. The duplicate count is reported alongside it, so the
 discrepancy is visible rather than hidden, but exact would be better than bounded.
 
-**Give the logs view more than dates.** It filters by a single date or a range, which is
-what the assignment asks for, but an on-call engineer would immediately want to filter to
+**Give the logs view more than dates.** It filters by a single date or a range, but an on-call engineer would immediately want to filter to
 one service, or to failures only. The index for a service filter already exists.
 
 **Revisit the degradation threshold with someone who owns the SLO.** 1000 ms is defensible
@@ -392,7 +382,7 @@ states. In a real setting that threshold is a negotiated figure, not an inferred
 
 ## How this was built
 
-I used AI tools throughout, which the assignment allows. I used them for profiling the
+I used AI tools throughout. I used them for profiling the
 data and laying out options, but I made every judgment call that moves the SLA number myself: what
 "available" means, what happens to `999`, which timezone defines a day, which four stats
 to show. I can argue for each one, and each is written down in

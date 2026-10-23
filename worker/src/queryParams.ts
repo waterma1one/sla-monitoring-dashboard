@@ -19,7 +19,7 @@ function isValidDay(value: string): boolean {
 
 /**
  * A single `day`, or a `from`/`to` range, never both, never neither - the
- * assignment requires the logs view to be filterable by exactly one of the two.
+ * logs view filters by exactly one of the two.
  * `day` is returned as a one-day `{ from, to }` range so callers have one shape.
  */
 export function parseDateFilter(params: URLSearchParams): DateFilterResult {

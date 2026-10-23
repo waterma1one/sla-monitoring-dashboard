@@ -60,7 +60,7 @@ export async function getStats(
   if (!(await uploadExists(env, uploadId))) return { ok: false, reason: "upload_not_found" };
 
   // All services this upload has ever reported, not just ones active in the
-  // requested range - the assignment's 5 services are fixed for the whole file,
+  // requested range - the 5 services are fixed for the whole file,
   // so a service silent for part of the range should still count against
   // coverage rather than shrink the expected denominator. See docs/decisions.md.
   const serviceCountRow = await env.DB.prepare(

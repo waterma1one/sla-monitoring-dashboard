@@ -174,7 +174,7 @@ a 100,000-request daily allowance.
 
 The browser does **no parsing, validation, or cleaning** — it splits bytes at newlines and
 prepends the header line to every chunk so each chunk is self-describing. Every cleaning
-rule in section 2 runs in the deployed Worker, which is what the assignment requires.
+rule in section 2 runs in the deployed Worker.
 Chunking also makes the upload UI's progress indicator report real progress instead of
 animating.
 
@@ -273,7 +273,7 @@ CREATE UNIQUE INDEX idx_checks_dedup
     ON checks(upload_id, service_id, ts, agent, status_code, COALESCE(latency_ms, -1));
 ```
 
-- `idx_checks_day` serves the logs view. Both filter shapes the assignment requires — a
+- `idx_checks_day` serves the logs view. Both filter shapes — a
   single date (`day = ?`) and a range (`day BETWEEN ? AND ?`) — are a prefix match then a
   range scan on this index, and because `day` is derived from `ts`, the index order *is*
   `ORDER BY day, ts`, so the sort is free.
@@ -333,7 +333,7 @@ it, so the discrepancy is visible rather than hidden.
 
 ### CORS is open on all three ingest endpoints
 
-`Access-Control-Allow-Origin: *`. No authentication is in scope per the assignment, so
+`Access-Control-Allow-Origin: *`. There is no authentication, so
 there is no session or cookie boundary this would weaken, and the upload UI (phase 5) is
 the only client this is meant to serve.
 
@@ -351,7 +351,7 @@ change.
 
 `coverage`'s denominator (`days x 96 per service`) counts every service that
 appears anywhere in the upload, not just the ones with rows in the requested
-range. The assignment's 5 services are fixed for a given file, so a service
+range. The 5 services are fixed for a given file, so a service
 that is silent for part of the range should still count against coverage -
 narrowing the denominator to only-services-present-in-range would make a total
 outage in a range look identical to that service simply not existing.
@@ -457,8 +457,8 @@ of leaving the background at browser default.
 
 ## 10. Dashboard stats selection (phase 6, part 1)
 
-`StatsResult` computes ten numbers. The dashboard shows four. The assignment grades
-the choice of stats as a design decision, and showing everything computable is the
+`StatsResult` computes ten numbers. The dashboard shows four. The choice of
+stats is a design decision, and showing everything computable is the
 absence of a choice, so each one below earns its place against a named reader.
 
 The two readers are an on-call engineer ("is something broken, which thing, how bad")
@@ -518,8 +518,7 @@ to a number.
 is not merely incomplete, it is incorrect: credits are owed per service, so a blended
 figure both hides one service's breach behind four healthy ones and implies a credit
 for the four that met their SLO. A dashboard whose headline number can answer "no
-credit owed" while a credit is owed is not defensible in the interview this project
-has to survive.
+credit owed" while a credit is owed is not defensible.
 
 So `getStats` is extended with a per-service breakdown, and the dashboard shows the
 per-service availability alongside the blended figure. This is Worker work that phase
@@ -540,16 +539,16 @@ stale id whenever the D1 data is reset).
 
 ### Upload and dashboard are two tabs in one app, not two routes
 
-The assignment names them as separate concerns (upload screen; single-screen dashboard
+They are separate concerns (upload screen; single-screen dashboard
 with two sections). No router is added for a two-way switch - `App.tsx` holds which
 screen is showing in local state, matching the existing "no dependency without a
 concrete need" rule from earlier sections. Finishing an upload switches to the
 Dashboard tab automatically and preselects the upload just created, which is the
-"does it work end to end" path the assignment cares about most.
+"does it work end to end" path that matters most.
 
 ### Stats and logs share one date filter, not two
 
-The assignment requires only the logs view to be filterable, but `getStats` is
+Only the logs view strictly needs to be filterable, but `getStats` is
 range-scoped too - section 1 already commits to "the dashboard computes over the
 selected date range." A single `DateFilterControl` in `Dashboard.tsx` drives both
 `StatsSection` and `LogsSection`, so the two sections are never looking at different

@@ -6,7 +6,7 @@ import { openUpload, postChunk, finalizeUpload } from "./ingest";
 import { getStats, getLogs, listUploads } from "./query";
 import { parseDateFilter, parsePagination } from "./queryParams";
 
-// No auth is in scope for this project (problem_statement.md), so there is no origin
+// No auth in this project, so there is no origin
 // to restrict this to - the upload UI is the only client and free-tier Workers
 // have no session/cookie boundary for this to protect.
 const CORS_HEADERS = {
